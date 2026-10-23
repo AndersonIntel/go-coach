@@ -1,0 +1,2060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Go Sensei - Tactical Coach & Review</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #191920;
+      color: #f0f0f5;
+      display: flex;
+      justify-content: center;
+      min-height: 100vh;
+      align-items: center;
+    }
+    #app {
+      display: flex;
+      gap: 28px;
+      max-width: 1080px;
+      width: 100%;
+      position: relative;
+    }
+    #game-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 540px;
+      flex: 0 0 540px;
+      order: 2;
+    }
+    #controls-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 540px;
+      margin-bottom: 12px;
+      align-items: center;
+    }
+    #status {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #e4a758;
+      min-width: 0;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .hud-btn {
+      background: #353544;
+      color: #bbb;
+      border: 1px solid #4f4f66;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .hud-btn:hover { background: #444458; color: #fff; }
+    #board-container {
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      border-radius: 6px;
+      line-height: 0;
+      overflow: hidden;
+      position: relative;
+    }
+    canvas#goCanvas {
+      cursor: pointer;
+      display: block;
+    }
+
+    /* Review Bar & Chart */
+    #review-panel {
+      width: 540px;
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .nav-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .nav-bar button {
+      background: #353544;
+      border: 1px solid #4f4f66;
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .nav-bar button:hover { background: #4a4a60; }
+    #chart-container {
+      background: #252530;
+      border: 1px solid #353544;
+      border-radius: 6px;
+      padding: 8px;
+    }
+    canvas#graphCanvas {
+      display: block;
+      width: 100%;
+      height: 60px;
+      cursor: pointer;
+    }
+
+    /* Coach Sidebar - Version 1.6 Manuscript Aesthetic */
+    #coach-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #252530;
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      height: 560px;
+      overflow: hidden;
+      order: 1;
+    }
+    #coach-header {
+      padding: 12px 16px;
+      background: #30303e;
+      font-weight: 700;
+      font-size: 0.95rem;
+      border-bottom: 1px solid #444456;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #coach-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #coachToggleBtn {
+      padding: 4px 8px;
+      font-size: 0.75rem;
+    }
+    #coach-col.collapsed {
+      width: 56px;
+      height: 56px;
+      flex: 0 0 56px;
+      border-radius: 8px;
+    }
+    #coach-col.collapsed #coach-header {
+      width: 56px;
+      height: 56px;
+      padding: 0;
+      justify-content: center;
+      border-bottom: none;
+    }
+    #coach-col.collapsed #personaHeaderName,
+    #coach-col.collapsed #passBtn,
+    #coach-col.collapsed #resignBtn,
+    #coach-col.collapsed #settingsBtn {
+      display: none;
+    }
+    #coach-col.collapsed #coach-header-actions {
+      width: 56px;
+      height: 56px;
+      justify-content: center;
+    }
+    #coach-col.collapsed #coachToggleBtn {
+      width: 56px;
+      height: 56px;
+      padding: 0;
+      font-size: 0;
+    }
+    #coach-col.collapsed #coachToggleBtn::before {
+      content: "+";
+      font-size: 1.5rem;
+      line-height: 1;
+    }
+    #app.coach-collapsed #game-col {
+      width: auto;
+      flex: 1 1 auto;
+    }
+    #app.coach-collapsed #controls-bar,
+    #app.coach-collapsed #review-panel {
+      width: 100%;
+    }
+    #coach-col.collapsed #chat-log,
+    #coach-col.collapsed #coach-controls {
+      display: none;
+    }
+    #chat-log {
+      flex: 1;
+      padding: 18px 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      font-family: "Georgia", serif;
+      background: #1e1e24;
+      line-height: 1.6;
+    }
+    .advice-entry {
+      padding-bottom: 12px;
+      border-bottom: 1px dashed #3e3e50;
+      color: #dfdfe6;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+    }
+    .advice-header {
+      font-size: 0.78rem;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #e4a758;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin-bottom: 6px;
+      font-weight: 700;
+    }
+    .student-entry {
+      opacity: 0.85;
+      font-style: italic;
+    }
+    .student-entry .advice-header {
+      color: #8da4d0;
+    }
+
+    #coach-controls {
+      padding: 12px 16px;
+      background: #30303e;
+      border-top: 1px solid #444456;
+      display: flex;
+      gap: 8px;
+    }
+    #coachModeSelect {
+      width: 78px;
+      flex: 0 0 78px;
+      background: #191920;
+      border: 1px solid #4f4f66;
+      color: #fff;
+      padding: 8px 4px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+    }
+    .primary-btn {
+      background: #e4a758;
+      color: #1a1105;
+      border: none;
+      padding: 10px 14px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .primary-btn:hover { background: #f3be7a; }
+    .primary-btn:disabled { background: #555; color: #888; cursor: not-allowed; }
+    input[type="text"] {
+      flex: 1;
+      background: #191920;
+      border: 1px solid #4f4f66;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    input[type="text"]:focus { outline: 1px solid #e4a758; }
+
+    /* Modals & Overlays */
+    .modal-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 15, 20, 0.88);
+      backdrop-filter: blur(4px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      border-radius: 8px;
+    }
+    .hidden { display: none !important; }
+
+    .pass-banner {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 110;
+      width: 280px;
+      padding: 18px 20px;
+      border-radius: 8px;
+      border-top: 8px solid #8c2d19;
+      border-bottom: 8px solid #8c2d19;
+      background: #f4ecd8;
+      color: #2b1d0c;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.65), inset 0 0 18px rgba(160, 120, 60, 0.25);
+      text-align: center;
+      pointer-events: none;
+      animation: passBannerIn 0.2s ease-out;
+    }
+    .pass-banner-title {
+      color: #8c2d19;
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .pass-banner-subtitle {
+      margin-top: 4px;
+      color: #5a3c1e;
+      font-size: 0.9rem;
+      font-style: italic;
+    }
+    @keyframes passBannerIn {
+      from { opacity: 0; transform: translate(-50%, -46%) scale(0.96); }
+      to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+
+    /* Setup Menu Box */
+    .menu-card {
+      background: #252530;
+      border: 1px solid #444458;
+      border-radius: 10px;
+      padding: 24px 32px;
+      width: 380px;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.6);
+    }
+    .menu-card h2 { margin-top: 0; color: #e4a758; font-size: 1.4rem; text-align: center; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 6px; }
+    .form-group select, .form-group input[type="password"] {
+      width: 100%;
+      background: #191920;
+      color: #fff;
+      border: 1px solid #4f4f66;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    .form-group input[type="text"] {
+      width: 100%;
+      flex: none;
+    }
+    .account-row {
+      display: flex;
+      gap: 8px;
+      align-items: end;
+    }
+    .account-row .form-group { flex: 1; margin-bottom: 0; }
+    .account-status { color: #aaa; font-size: 0.78rem; margin-top: 6px; }
+    .menu-actions { display: flex; gap: 8px; margin-top: 14px; }
+    .menu-actions button { flex: 1; }
+    .stats-card {
+      width: min(920px, calc(100vw - 40px));
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+    }
+    .stats-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .stats-header h2 { margin-bottom: 4px; }
+    .stats-subtitle { color: #aaa; font-size: 0.85rem; margin: 0 0 18px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+    .stat-tile { background: #191920; border: 1px solid #3c3c50; border-radius: 6px; padding: 12px; }
+    .stat-tile strong { display: block; color: #e4a758; font-size: 1.35rem; margin-top: 4px; }
+    .stat-tile span { color: #aaa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.6px; }
+    .stats-columns { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; }
+    .stats-section { background: #1e1e24; border: 1px solid #3c3c50; border-radius: 6px; padding: 14px; }
+    .stats-section h3 { margin: 0 0 10px; color: #ddd; font-size: 0.95rem; }
+    #recentGames { margin: 0; padding-left: 18px; color: #c8c8d0; font-size: 0.85rem; line-height: 1.7; }
+    #statsCoachLog { min-height: 120px; max-height: 220px; overflow-y: auto; color: #dfdfe6; white-space: pre-wrap; line-height: 1.5; font-family: Georgia, serif; }
+    #telemetrySummary { color: #aaa; font-size: 0.8rem; line-height: 1.6; margin-top: 12px; }
+    .stats-coach-controls { display: flex; gap: 8px; margin-top: 12px; }
+    .stats-coach-controls select, .stats-coach-controls input { min-width: 0; flex: 1; background: #191920; border: 1px solid #4f4f66; color: #fff; padding: 8px; border-radius: 6px; }
+    @media (max-width: 720px) {
+      body { padding: 10px; align-items: flex-start; }
+      #app { flex-direction: column; gap: 14px; }
+      #game-col { width: 100%; flex: 0 1 auto; }
+      #controls-bar, #review-panel { width: 100%; }
+      #board-container, canvas#goCanvas { max-width: 100%; height: auto; }
+      #coach-col { width: 100%; height: 480px; }
+      #coach-col.collapsed { width: 56px; height: 56px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .stats-columns { grid-template-columns: 1fr; }
+    }
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 18px 0;
+      font-size: 0.88rem;
+    }
+    .checkbox-group input { accent-color: #e4a758; transform: scale(1.2); }
+
+    /* Ancient Victory Scroll */
+    .scroll-container {
+      background: #f4ecd8;
+      color: #2b1d0c;
+      width: 400px;
+      padding: 30px 24px;
+      border-radius: 8px;
+      border-top: 14px solid #8c2d19;
+      border-bottom: 14px solid #8c2d19;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.8), inset 0 0 24px rgba(160, 120, 60, 0.3);
+      text-align: center;
+      animation: unroll 0.45s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    }
+    @keyframes unroll {
+      from { transform: scaleY(0.2); opacity: 0; }
+      to { transform: scaleY(1); opacity: 1; }
+    }
+    .scroll-title {
+      font-size: 1.9rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      margin: 0 0 6px 0;
+      text-transform: uppercase;
+      color: #8c2d19;
+    }
+    .scroll-reason { font-size: 0.95rem; font-style: italic; margin-bottom: 16px; color: #5a3c1e; }
+    .score-breakdown {
+      background: rgba(0,0,0,0.05);
+      border: 1px dashed #b59b7c;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      font-size: 0.92rem;
+      line-height: 1.6;
+    }
+    .scroll-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+    .scroll-btn {
+      padding: 9px 14px;
+      border-radius: 6px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-gold { background: #8c2d19; color: #fff; }
+    .btn-gold:hover { background: #a6361e; }
+    .btn-secondary { background: #d3c4a5; color: #3a2a18; }
+    .btn-secondary:hover { background: #c5b38e; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <!-- START / SETUP MENU MODAL -->
+  <div id="menuModal" class="modal-overlay">
+    <div class="menu-card">
+      <h2>Match Settings</h2>
+      <div class="account-row">
+        <div class="form-group">
+          <label for="profileNameInput">Player Profile</label>
+          <input type="text" id="profileNameInput" placeholder="Enter your name" maxlength="24" />
+          <div id="profileStatus" class="account-status">Playing as Guest</div>
+        </div>
+        <button id="saveProfileBtn" class="hud-btn" type="button">Save Profile</button>
+      </div>
+      <button id="openStatsBtn" class="hud-btn" type="button" style="width:100%; margin: 4px 0 16px;">View Player Stats</button>
+      <div class="form-group">
+        <label>Your Stone Color</label>
+        <select id="userColorSelect">
+          <option value="1">Black (Plays First)</option>
+          <option value="2">White (Bot plays first)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Bot Opponent Skill</label>
+        <select id="botRankSelect">
+          <option value="30">Level 1: Novice (~30 kyu)</option>
+          <option value="25" selected>Level 2: Apprentice (~25 kyu)</option>
+          <option value="20">Level 3: Tactician (~20 kyu)</option>
+          <option value="10">Level 4: Challenger (~10 kyu)</option>
+          <option value="5">Level 5: Advanced (~5 kyu)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Board Size</label>
+        <select id="boardSizeSelect">
+          <option value="9" selected>9 x 9 (Fast)</option>
+          <option value="13">13 x 13 (Standard)</option>
+          <option value="19">19 x 19 (Full Board)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Master Coach Persona</label>
+        <select id="personaSelect">
+          <option value="poetic" selected>Sensei (Wise & Poetic)</option>
+          <option value="tactical">Grandmaster (Precise & Analytic)</option>
+          <option value="rival">Witty Rival (Sarcastic & Provocative)</option>
+        </select>
+      </div>
+      <div class="checkbox-group">
+        <input type="checkbox" id="autoResignToggle" checked />
+        <label for="autoResignToggle">Enable Bot Resignation (>25 pts behind)</label>
+      </div>
+      <button id="startGameBtn" class="primary-btn" style="width:100%; padding:12px; font-size:1rem;">Enter The Board</button>
+    </div>
+  </div>
+
+  <div id="statsModal" class="modal-overlay hidden">
+    <div class="menu-card stats-card">
+      <div class="stats-header">
+        <div>
+          <h2>Player Chronicle</h2>
+          <p id="statsSubtitle" class="stats-subtitle">Your Go record and recurring patterns.</p>
+        </div>
+        <button id="closeStatsBtn" class="hud-btn" type="button">Back</button>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-tile"><span>Wins</span><strong id="winsStat">0</strong></div>
+        <div class="stat-tile"><span>Losses</span><strong id="lossesStat">0</strong></div>
+        <div class="stat-tile"><span>Win Rate</span><strong id="winRateStat">0%</strong></div>
+        <div class="stat-tile"><span>Best Streak</span><strong id="streakStat">0</strong></div>
+      </div>
+      <div id="telemetrySummary">Move telemetry will appear after your first completed game.</div>
+      <div class="stats-columns">
+        <section class="stats-section">
+          <h3>Recent Matches</h3>
+          <ol id="recentGames"><li>No completed games yet.</li></ol>
+        </section>
+        <section class="stats-section">
+          <h3>AI Coach Analysis</h3>
+          <div id="statsCoachLog">Complete a few games, then ask the coach to identify your trends.</div>
+          <div class="stats-coach-controls">
+            <select id="statsPersonaSelect" aria-label="Stats coach persona">
+              <option value="poetic">Sensei</option>
+              <option value="tactical">Grandmaster</option>
+              <option value="rival">Witty Rival</option>
+            </select>
+            <button id="analyzeStatsBtn" class="primary-btn" type="button">Analyze</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="passBanner" class="pass-banner hidden" role="status" aria-live="polite">
+    <div class="pass-banner-title">Opponent Passed</div>
+    <div class="pass-banner-subtitle">The board grows quiet.</div>
+  </div>
+
+  <!-- VICTORY / DEFEAT SCROLL -->
+  <div id="endGameModal" class="modal-overlay hidden">
+    <div class="scroll-container">
+      <div id="scrollTitle" class="scroll-title">Victory!</div>
+      <div id="scrollReason" class="scroll-reason">White has laid down their stones in resignation.</div>
+      <div id="scoreBox" class="score-breakdown">
+        <strong>Final Tally:</strong><br>
+        Black: <span id="blackScore">0</span> pts (Caps: <span id="bCaps">0</span>, Territory: <span id="bTerr">0</span>)<br>
+        White: <span id="whiteScore">0</span> pts (Caps: <span id="wCaps">0</span>, Territory: <span id="wTerr">0</span>)
+      </div>
+      <div class="scroll-actions">
+        <button id="reviewGameBtn" class="scroll-btn btn-gold">Review Game</button>
+        <button id="playAgainBtn" class="scroll-btn btn-secondary">Play Again</button>
+        <button id="mainMenuBtn" class="scroll-btn btn-secondary">Main Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN GAME SCREEN -->
+  <div id="game-col">
+    <div id="controls-bar">
+      <div id="status">Turn: Black | Move 1</div>
+    </div>
+    <div id="board-container">
+      <canvas id="goCanvas" width="540" height="540"></canvas>
+    </div>
+
+    <!-- Review Navigation Bar & Win-Rate Graph -->
+    <div id="review-panel" class="hidden">
+      <div class="nav-bar">
+        <button id="prevMoveBtn">&lt; Previous</button>
+        <span id="reviewStepText" style="font-size:0.88rem; font-weight:600;">Move 0 / 0</span>
+        <button id="nextMoveBtn">Next &gt;</button>
+      </div>
+      <div id="chart-container">
+        <div style="font-size:0.75rem; color:#888; margin-bottom:4px; display:flex; justify-content:space-between;">
+          <span>Win Probability (Click & drag to inspect turn)</span>
+          <span id="graphValText">Black: 50%</span>
+        </div>
+        <canvas id="graphCanvas" width="434" height="60"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- COACH SIDEBAR -->
+  <div id="coach-col">
+    <div id="coach-header">
+      <span id="personaHeaderName">Sensei Gemini</span>
+      <div id="coach-header-actions">
+        <button id="passBtn" class="hud-btn">Pass</button>
+        <button id="resignBtn" class="hud-btn">Resign</button>
+        <button id="coachToggleBtn" class="hud-btn" type="button" aria-expanded="true">Collapse</button>
+        <button id="settingsBtn" class="hud-btn" style="padding: 4px 8px; font-size:0.75rem;">Menu</button>
+      </div>
+    </div>
+    <div id="chat-log"></div>
+    <div id="coach-controls">
+      <select id="coachModeSelect" aria-label="Coach response mode">
+        <option value="quick">Quick</option>
+        <option value="deep">Deep</option>
+      </select>
+      <button id="askCoachBtn" class="primary-btn">Assess Position</button>
+      <input type="text" id="userInput" placeholder="Ask for tactical guidance..." />
+      <button id="sendBtn" class="primary-btn">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const API_BASE_URL = (window.AI_COACH_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+  const canvas = document.getElementById("goCanvas");
+  const ctx = canvas.getContext("2d");
+  const graphCanvas = document.getElementById("graphCanvas");
+  const gctx = graphCanvas.getContext("2d");
+
+  const statusEl = document.getElementById("status");
+  const chatLog = document.getElementById("chat-log");
+  const askCoachBtn = document.getElementById("askCoachBtn");
+  const coachModeSelect = document.getElementById("coachModeSelect");
+  const userInput = document.getElementById("userInput");
+  const sendBtn = document.getElementById("sendBtn");
+  const passBtn = document.getElementById("passBtn");
+  const resignBtn = document.getElementById("resignBtn");
+  const settingsBtn = document.getElementById("settingsBtn");
+  const coachToggleBtn = document.getElementById("coachToggleBtn");
+  const coachCol = document.getElementById("coach-col");
+  const app = document.getElementById("app");
+  const profileNameInput = document.getElementById("profileNameInput");
+  const profileStatus = document.getElementById("profileStatus");
+  const saveProfileBtn = document.getElementById("saveProfileBtn");
+  const openStatsBtn = document.getElementById("openStatsBtn");
+  const statsModal = document.getElementById("statsModal");
+  const closeStatsBtn = document.getElementById("closeStatsBtn");
+  const statsSubtitle = document.getElementById("statsSubtitle");
+  const winsStat = document.getElementById("winsStat");
+  const lossesStat = document.getElementById("lossesStat");
+  const winRateStat = document.getElementById("winRateStat");
+  const streakStat = document.getElementById("streakStat");
+  const telemetrySummary = document.getElementById("telemetrySummary");
+  const recentGames = document.getElementById("recentGames");
+  const statsCoachLog = document.getElementById("statsCoachLog");
+  const statsPersonaSelect = document.getElementById("statsPersonaSelect");
+  const analyzeStatsBtn = document.getElementById("analyzeStatsBtn");
+  const passBanner = document.getElementById("passBanner");
+  let passBannerTimeout = null;
+
+  // Modals & Review Controls
+  const menuModal = document.getElementById("menuModal");
+  const endGameModal = document.getElementById("endGameModal");
+  const reviewPanel = document.getElementById("review-panel");
+  const startGameBtn = document.getElementById("startGameBtn");
+  const playAgainBtn = document.getElementById("playAgainBtn");
+  const mainMenuBtn = document.getElementById("mainMenuBtn");
+  const reviewGameBtn = document.getElementById("reviewGameBtn");
+  const prevMoveBtn = document.getElementById("prevMoveBtn");
+  const nextMoveBtn = document.getElementById("nextMoveBtn");
+  const reviewStepText = document.getElementById("reviewStepText");
+  const graphValText = document.getElementById("graphValText");
+
+  const userColorSelect = document.getElementById("userColorSelect");
+  const botRankSelect = document.getElementById("botRankSelect");
+  const boardSizeSelect = document.getElementById("boardSizeSelect");
+  const personaSelect = document.getElementById("personaSelect");
+  const autoResignToggle = document.getElementById("autoResignToggle");
+
+  // Go Logic Constants
+  let SIZE = 9;
+  const PADDING = 35;
+  let CELL_SIZE = (canvas.width - 2 * PADDING) / (SIZE - 1);
+  let STONE_RADIUS = CELL_SIZE * 0.44;
+  const COLS = ["A","B","C","D","E","F","G","H","J","K","L","M","N","O","P","Q","R","S","T"];
+  const EMPTY = 0, BLACK = 1, WHITE = 2;
+
+  // App State
+  let board = Array(SIZE).fill(null).map(() => Array(SIZE).fill(EMPTY));
+  let turn = BLACK;
+  let moveCount = 1;
+  let caps = { 1: 0, 2: 0 };
+  let moveHistory = [];
+  let consecutivePasses = 0;
+  let lastMove = null;
+  let botThinking = false;
+  let gameOver = false;
+  let inReviewMode = false;
+  let reviewIndex = 0;
+  let userMoveStartedAt = 0;
+  let hoverStartedAt = 0;
+  let hoverPointKey = "";
+  let hoverTimeMs = 0;
+  let scrubStartedAt = 0;
+  let scrubTimeMs = 0;
+  let moveTelemetry = [];
+
+  // History states for review and graph
+  let gameSnapshots = [];
+
+  let userColor = BLACK;
+  let botColor = WHITE;
+  let botRank = 25;
+  let currentPersona = "poetic";
+  let allowResign = true;
+  let activeCoachController = null;
+  const coachResponseCache = new Map();
+  const PROFILE_STORAGE_KEY = "go_sensei_profiles";
+  const ACTIVE_PROFILE_KEY = "go_sensei_active_profile";
+  let activeProfileName = localStorage.getItem(ACTIVE_PROFILE_KEY) || "Guest";
+
+  function readProfiles() {
+    try { return JSON.parse(localStorage.getItem(PROFILE_STORAGE_KEY) || "{}"); }
+    catch (_) { return {}; }
+  }
+
+  function getProfile() {
+    const profiles = readProfiles();
+    if (!profiles[activeProfileName]) {
+      profiles[activeProfileName] = { games: [], telemetry: createTelemetryProfile() };
+    } else if (!profiles[activeProfileName].telemetry) {
+      profiles[activeProfileName].telemetry = createTelemetryProfile();
+    }
+    if (!Array.isArray(profiles[activeProfileName].games)) profiles[activeProfileName].games = [];
+      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+    return profiles[activeProfileName];
+  }
+
+  function createTelemetryProfile() {
+    return {
+      totalMoves: 0,
+      totalThinkTimeMs: 0,
+      totalHoverTimeMs: 0,
+      totalScrubTimeMs: 0,
+      totalPointLoss: 0,
+      totalWinRateSwing: 0,
+      phasePerformance: {
+        opening: { moves: 0, totalPointLoss: 0 },
+        midGame: { moves: 0, totalPointLoss: 0 },
+        endgame: { moves: 0, totalPointLoss: 0 }
+      },
+      blunderTriggers: { fastBlunders: 0, slowBlunders: 0, underAttackBlunders: 0 },
+      moveClassificationTotals: { best: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 },
+      archetypeTotals: { sente: 0, tenuki: 0, cutting: 0, connecting: 0, defending: 0, overExtension: 0 },
+      recentTrends: []
+    };
+  }
+
+  function mergeTelemetryProfile(existing) {
+    const defaults = createTelemetryProfile();
+    const telemetry = existing || defaults;
+    Object.keys(defaults).forEach(key => {
+      if (telemetry[key] === undefined) telemetry[key] = defaults[key];
+    });
+    Object.keys(defaults.phasePerformance).forEach(key => {
+      telemetry.phasePerformance[key] = { ...defaults.phasePerformance[key], ...(telemetry.phasePerformance[key] || {}) };
+    });
+    ["blunderTriggers", "moveClassificationTotals", "archetypeTotals"].forEach(key => {
+      telemetry[key] = { ...defaults[key], ...(telemetry[key] || {}) };
+    });
+    return telemetry;
+  }
+
+  function saveProfileName() {
+    const requestedName = profileNameInput.value.trim().replace(/\s+/g, " ") || "Guest";
+    const profiles = readProfiles();
+    if (!profiles[requestedName]) profiles[requestedName] = { games: [], telemetry: createTelemetryProfile() };
+    activeProfileName = requestedName;
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+    localStorage.setItem(ACTIVE_PROFILE_KEY, activeProfileName);
+    profileNameInput.value = activeProfileName;
+    profileStatus.innerText = `Playing as ${activeProfileName}`;
+    renderStats();
+  }
+
+  function renderStats() {
+    const games = getProfile().games;
+    const wins = games.filter(game => game.result === "win").length;
+    const losses = games.length - wins;
+    const winRate = games.length ? Math.round((wins / games.length) * 100) : 0;
+    let currentStreak = 0;
+    let bestStreak = 0;
+    [...games].reverse().forEach(game => {
+      if (game.result === "win") currentStreak++;
+      else currentStreak = 0;
+      bestStreak = Math.max(bestStreak, currentStreak);
+    });
+
+    profileNameInput.value = activeProfileName;
+    profileStatus.innerText = `Playing as ${activeProfileName}`;
+    statsSubtitle.innerText = `${activeProfileName}'s Go record and recurring patterns.`;
+    winsStat.innerText = wins;
+    lossesStat.innerText = losses;
+    winRateStat.innerText = `${winRate}%`;
+    streakStat.innerText = bestStreak;
+    recentGames.innerHTML = games.length ? games.slice(-8).reverse().map(game =>
+      `<li><strong>${game.result === "win" ? "Win" : "Loss"}</strong> - ${game.boardSize} board, Level ${game.botRank}, ${game.moves} moves</li>`
+    ).join("") : "<li>No completed games yet.</li>";
+    const telemetry = mergeTelemetryProfile(getProfile().telemetry);
+    const averageThink = telemetry.totalMoves ? (telemetry.totalThinkTimeMs / telemetry.totalMoves / 1000).toFixed(1) : "0.0";
+    const blunders = telemetry.moveClassificationTotals.blunder;
+    const fastBlunderRate = blunders ? Math.round(telemetry.blunderTriggers.fastBlunders / blunders * 100) : 0;
+    telemetrySummary.innerText = `${telemetry.totalMoves} user moves tracked | Avg think: ${averageThink}s | Point loss: ${telemetry.totalMoves ? (telemetry.totalPointLoss / telemetry.totalMoves).toFixed(2) : "0.00"}/move | Blunders: ${blunders} (${fastBlunderRate}% fast) | Hover: ${(telemetry.totalHoverTimeMs / 1000).toFixed(1)}s | Scrubbing: ${(telemetry.totalScrubTimeMs / 1000).toFixed(1)}s`;
+  }
+
+  function recordGameResult(winner, scores, reason) {
+    const profiles = readProfiles();
+    const profile = profiles[activeProfileName] || { games: [], telemetry: createTelemetryProfile() };
+    profile.telemetry = mergeTelemetryProfile(profile.telemetry);
+    profile.games.push({
+      result: winner === userColor ? "win" : "loss",
+      boardSize: `${SIZE}x${SIZE}`,
+      botRank,
+      userColor: userColor === BLACK ? "Black" : "White",
+      moves: Math.max(0, moveCount - 1),
+      score: userColor === BLACK ? scores.totalBlack : scores.totalWhite,
+      opponentScore: userColor === BLACK ? scores.totalWhite : scores.totalBlack,
+      captures: userColor === BLACK ? caps[BLACK] : caps[WHITE],
+      userMoves: moveTelemetry,
+      reason,
+      persona: currentPersona,
+      playedAt: new Date().toISOString()
+    });
+    const telemetry = mergeTelemetryProfile(profile.telemetry);
+    telemetry.recentTrends.push({
+      gameId: profile.games.length,
+      openingAvgPointLoss: averagePhaseLoss(telemetry.phasePerformance.opening),
+      midGameAvgPointLoss: averagePhaseLoss(telemetry.phasePerformance.midGame),
+      endgameAvgPointLoss: averagePhaseLoss(telemetry.phasePerformance.endgame),
+      blunderRate: telemetry.totalMoves ? +(telemetry.moveClassificationTotals.blunder / telemetry.totalMoves).toFixed(3) : 0,
+      tenukiRate: telemetry.totalMoves ? +(telemetry.archetypeTotals.tenuki / telemetry.totalMoves).toFixed(3) : 0,
+      result: winner === userColor ? "win" : "loss"
+    });
+    telemetry.recentTrends = telemetry.recentTrends.slice(-12);
+    profile.telemetry = telemetry;
+    delete profile.currentGameMoves;
+    profiles[activeProfileName] = profile;
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+  }
+
+  function averagePhaseLoss(phaseData) {
+    return phaseData.moves ? +(phaseData.totalPointLoss / phaseData.moves).toFixed(2) : 0;
+  }
+
+  function getGamePhase() {
+    const progress = Math.min(1, Math.max(0, (moveCount - 1) / (SIZE * SIZE * 0.45)));
+    return progress < 0.28 ? "opening" : progress < 0.78 ? "midGame" : "endgame";
+  }
+
+  function getGroupAt(targetBoard, x, y) {
+    if (targetBoard[y]?.[x] === EMPTY) return { stones: [], liberties: new Set() };
+    return getLiberties(x, y, targetBoard, new Set());
+  }
+
+  function classifyPointLoss(pointLoss, winRateSwing) {
+    if (pointLoss < 0.5 && winRateSwing < 0.03) return "best";
+    if (pointLoss < 1.5 && winRateSwing < 0.07) return "good";
+    if (pointLoss < 3.5 && winRateSwing < 0.14) return "inaccuracy";
+    if (pointLoss < 7 && winRateSwing < 0.25) return "mistake";
+    return "blunder";
+  }
+
+  function getMoveArchetypes(previousBoard, nextBoard, x, y, playerColor, capturedCount, groupBefore) {
+    const ownStones = [];
+    let nearestDistance = Infinity;
+    for (let boardY = 0; boardY < SIZE; boardY++) {
+      for (let boardX = 0; boardX < SIZE; boardX++) {
+        if (previousBoard[boardY][boardX] === playerColor) {
+          ownStones.push({ x: boardX, y: boardY });
+          nearestDistance = Math.min(nearestDistance, Math.abs(boardX - x) + Math.abs(boardY - y));
+        }
+      }
+    }
+    const adjacentOwn = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]
+      .some(([nx, ny]) => nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE && previousBoard[ny][nx] === playerColor);
+    const nextGroup = getGroupAt(nextBoard, x, y);
+    return {
+      sente: capturedCount > 0 || nextGroup.liberties.size >= 3,
+      tenuki: ownStones.length > 0 && nearestDistance >= Math.max(4, Math.floor(SIZE / 3)),
+      cutting: [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]].some(([nx, ny]) => nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE && previousBoard[ny][nx] === (playerColor === BLACK ? WHITE : BLACK)),
+      connecting: adjacentOwn && ownStones.some(stone => Math.abs(stone.x - x) + Math.abs(stone.y - y) === 2),
+      defending: groupBefore && groupBefore.stones.length > 0 && groupBefore.liberties.size <= 2,
+      overExtension: !adjacentOwn && nextGroup.liberties.size <= 2 && capturedCount === 0
+    };
+  }
+
+  function recordUserMoveTelemetry(moveData) {
+    const profiles = readProfiles();
+    const profile = profiles[activeProfileName] || { games: [], telemetry: createTelemetryProfile() };
+    const telemetry = mergeTelemetryProfile(profile.telemetry);
+    const phase = moveData.phase;
+    const classification = moveData.classification;
+    telemetry.totalMoves++;
+    telemetry.totalThinkTimeMs += moveData.thinkTimeMs;
+    telemetry.totalHoverTimeMs += moveData.hoverTimeMs;
+    telemetry.totalScrubTimeMs += moveData.scrubTimeMs;
+    telemetry.totalPointLoss += moveData.pointLoss;
+    telemetry.totalWinRateSwing += moveData.winRateSwing;
+    telemetry.phasePerformance[phase].moves++;
+    telemetry.phasePerformance[phase].totalPointLoss += moveData.pointLoss;
+    telemetry.moveClassificationTotals[classification]++;
+    if (classification === "blunder") {
+      if (moveData.thinkTimeMs < 2000) telemetry.blunderTriggers.fastBlunders++;
+      if (moveData.thinkTimeMs > 15000) telemetry.blunderTriggers.slowBlunders++;
+      if (moveData.underAttack) telemetry.blunderTriggers.underAttackBlunders++;
+    }
+    Object.keys(moveData.archetypes).forEach(key => {
+      if (moveData.archetypes[key]) telemetry.archetypeTotals[key]++;
+    });
+    profile.telemetry = telemetry;
+    profile.currentGameMoves = moveTelemetry;
+    profiles[activeProfileName] = profile;
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+    renderStats();
+  }
+
+  function getStatsSummary() {
+    const profile = getProfile();
+    const games = profile.games;
+    const telemetry = mergeTelemetryProfile(profile.telemetry);
+    const wins = games.filter(game => game.result === "win").length;
+    const losses = games.length - wins;
+    const averageMoves = games.length ? Math.round(games.reduce((sum, game) => sum + game.moves, 0) / games.length) : 0;
+    const boards = [...new Set(games.map(game => game.boardSize))].join(", ") || "None yet";
+    const recent = telemetry.recentTrends.slice(-8);
+    const averageThink = telemetry.totalMoves ? (telemetry.totalThinkTimeMs / telemetry.totalMoves / 1000).toFixed(2) : "0.00";
+    const phaseSummary = Object.fromEntries(Object.entries(telemetry.phasePerformance).map(([phase, data]) => [phase, { moves: data.moves, avgPointLoss: data.moves ? +(data.totalPointLoss / data.moves).toFixed(2) : 0 }]));
+    return JSON.stringify({
+      profile: { name: activeProfileName, games: games.length, wins, losses, winRate: games.length ? Math.round(wins / games.length * 100) : 0, averageGameLength: averageMoves, boards },
+      telemetry: { totalMoves: telemetry.totalMoves, avgThinkTimeSec: +averageThink, phasePerformance: phaseSummary, blunderTriggers: telemetry.blunderTriggers, moveClassificationTotals: telemetry.moveClassificationTotals, archetypeTotals: telemetry.archetypeTotals, recentTrends: recent }
+    }, null, 2);
+  }
+
+  async function analyzePlayerStats() {
+    analyzeStatsBtn.disabled = true;
+    statsCoachLog.innerText = "The coach is studying your record...";
+    const personaInstructions = {
+      poetic: "Speak like a quiet ancient Sensei. Use a few clear images, but make the advice practical.",
+      tactical: "Speak like a modern tournament friend. Be precise, encouraging, and focused on measurable habits.",
+      rival: "Speak like a witty competitive rival. Use one playful jab, then give useful and respectful advice."
+    };
+    const prompt = `Role: You are a master Go coach analyzing a player's long-term habits. ${personaInstructions[statsPersonaSelect.value]}
+  Input: The following JSON contains pre-calculated telemetry. Treat missing or zero-sample metrics as unknown; do not invent evidence.
+  Task: Provide a concise profile analysis under 240 words with exactly these sections:
+  1. Core habit pattern: connect timing or hesitation to move quality when the data supports it.
+  2. Primary weakness: identify the phase, board condition, or tactical archetype where points are lost.
+  3. Strength: identify the strongest phase or reliable habit.
+  4. Training rule: give one concrete mental rule for the next game.
+  Mention sample size and distinguish fast blunders from slow overthinking. Explain that point loss is an engine estimate, not absolute truth.
+
+  ${getStatsSummary()}`;
+    try {
+      const sessionResult = await window.supabaseClient?.auth?.getSession?.();
+      const token = (typeof userSupabaseToken !== "undefined" && userSupabaseToken)
+        || window.userSupabaseToken
+        || sessionResult?.data?.session?.access_token
+        || "guest-dev-token";
+      const resp = await fetch(`${API_BASE_URL}/api/coach/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          user_question: prompt,
+          board_state: {
+            userPlays: userColor === BLACK ? "Black" : "White",
+            player_stats: JSON.parse(getStatsSummary())
+          }
+        })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || data.error || `Request failed (${resp.status})`);
+      statsCoachLog.innerText = typeof data.reply === "string" && data.reply.trim()
+        ? data.reply.trim()
+        : "The coach found no words for this record yet.";
+    } catch (err) {
+      statsCoachLog.innerText = `Analysis unavailable: ${err.message}`;
+    } finally {
+      analyzeStatsBtn.disabled = false;
+    }
+  }
+
+  function initGame() {
+    saveProfileName();
+    clearTimeout(passBannerTimeout);
+    passBanner.classList.add("hidden");
+    SIZE = parseInt(boardSizeSelect.value, 10);
+    CELL_SIZE = (canvas.width - 2 * PADDING) / (SIZE - 1);
+    STONE_RADIUS = CELL_SIZE * 0.44;
+    userColor = parseInt(userColorSelect.value, 10);
+    botColor = userColor === BLACK ? WHITE : BLACK;
+    botRank = parseInt(botRankSelect.value, 10);
+    currentPersona = personaSelect.value;
+    allowResign = autoResignToggle.checked;
+    
+    board = Array(SIZE).fill(null).map(() => Array(SIZE).fill(EMPTY));
+    turn = BLACK;
+    moveCount = 1;
+    caps = { 1: 0, 2: 0 };
+    moveHistory = [];
+    consecutivePasses = 0;
+    lastMove = null;
+    botThinking = false;
+    gameOver = false;
+    inReviewMode = false;
+    moveTelemetry = [];
+    userMoveStartedAt = performance.now();
+    hoverStartedAt = 0;
+    hoverPointKey = "";
+    hoverTimeMs = 0;
+    scrubStartedAt = 0;
+    scrubTimeMs = 0;
+
+    // Initial snapshot (Move 0)
+    gameSnapshots = [{
+      board: board.map(row => [...row]),
+      caps: { ...caps },
+      lastMove: null,
+      turn: BLACK,
+      moveCount: 0,
+      blackProb: 0.50
+    }];
+
+    menuModal.classList.add("hidden");
+    endGameModal.classList.add("hidden");
+    reviewPanel.classList.add("hidden");
+    chatLog.innerHTML = "";
+
+    const personaNames = {
+      poetic: "Sensei Gemini (Poetic)",
+      tactical: "Grandmaster Gemini (Tactical)",
+      rival: "Rival Gemini (Witty)"
+    };
+    document.getElementById("personaHeaderName").innerText = personaNames[currentPersona];
+
+    const intros = {
+      poetic: "The mist clears upon the wood. Hold steady your breath, student.",
+      tactical: "Board initialized. Optimize territory and calculate cuts efficiently.",
+      rival: "Let's see if you can survive the first 20 moves this time!"
+    };
+    addManuscriptEntry("Sensei", intros[currentPersona]);
+
+    updateStatus();
+    drawBoard();
+
+    if (botColor === BLACK) {
+      runBotTurn();
+    }
+  }
+
+  function updateStatus() {
+    if (inReviewMode) {
+      statusEl.innerText = `Reviewing Move ${reviewIndex} of ${gameSnapshots.length - 1}`;
+      reviewStepText.innerText = `Move ${reviewIndex} / ${gameSnapshots.length - 1}`;
+      return;
+    }
+    if (gameOver) return;
+    const whose = turn === userColor ? "Your Turn" : (botThinking ? "Opponent Thinking..." : "Opponent Turn");
+    const colorLabel = turn === BLACK ? "Black" : "White";
+    statusEl.innerText = `${whose} (${colorLabel}) | Move ${moveCount} | Caps: (B: ${caps[BLACK]}, W: ${caps[WHITE]})`;
+  }
+
+  function resizeBoardCanvas() {
+    const appWidth = app.clientWidth;
+    const isMobile = window.innerWidth <= 720;
+    const gap = parseFloat(getComputedStyle(app).columnGap) || 0;
+    const coachWidth = coachCol.getBoundingClientRect().width;
+    const availableWidth = isMobile ? appWidth : appWidth - gap - coachWidth;
+    const maxBoardSize = coachCol.classList.contains("collapsed")
+      ? Math.max(320, window.innerHeight - 48)
+      : 540;
+    const targetSize = Math.max(320, Math.floor(Math.min(maxBoardSize, availableWidth)));
+
+    if (canvas.width !== targetSize || canvas.height !== targetSize) {
+      canvas.width = targetSize;
+      canvas.height = targetSize;
+      CELL_SIZE = (canvas.width - 2 * PADDING) / (SIZE - 1);
+      STONE_RADIUS = CELL_SIZE * 0.44;
+      drawBoard();
+    }
+  }
+
+  function drawBoard() {
+    ctx.fillStyle = "#e4a758";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = "#4a2e10";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < SIZE; i++) {
+      ctx.beginPath();
+      ctx.moveTo(PADDING, PADDING + i * CELL_SIZE);
+      ctx.lineTo(canvas.width - PADDING, PADDING + i * CELL_SIZE);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(PADDING + i * CELL_SIZE, PADDING);
+      ctx.lineTo(PADDING + i * CELL_SIZE, canvas.height - PADDING);
+      ctx.stroke();
+    }
+
+    const star = SIZE === 9 ? [2, 6] : SIZE === 13 ? [3, 9] : [3, 9, 15];
+    const hoshi = [];
+    for (const hx of star) {
+      for (const hy of star) hoshi.push([hx, hy]);
+    }
+    if (SIZE !== 19) hoshi.push([Math.floor(SIZE / 2), Math.floor(SIZE / 2)]);
+    hoshi.forEach(([hx, hy]) => {
+      ctx.beginPath();
+      ctx.arc(PADDING + hx * CELL_SIZE, PADDING + hy * CELL_SIZE, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#4a2e10";
+      ctx.fill();
+    });
+
+    ctx.fillStyle = "#4a2e10";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (let i = 0; i < SIZE; i++) {
+      ctx.fillText(COLS[i], PADDING + i * CELL_SIZE, 14);
+      ctx.fillText(SIZE - i, 14, PADDING + i * CELL_SIZE);
+    }
+
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        const color = board[y][x];
+        if (color !== EMPTY) {
+          const px = PADDING + x * CELL_SIZE;
+          const py = PADDING + y * CELL_SIZE;
+
+          ctx.beginPath();
+          ctx.arc(px, py, STONE_RADIUS, 0, Math.PI * 2);
+
+          const grad = ctx.createRadialGradient(px - 3, py - 3, 2, px, py, STONE_RADIUS);
+          if (color === BLACK) {
+            grad.addColorStop(0, "#555");
+            grad.addColorStop(1, "#111");
+          } else {
+            grad.addColorStop(0, "#fff");
+            grad.addColorStop(1, "#ddd");
+          }
+          ctx.fillStyle = grad;
+          ctx.fill();
+          ctx.strokeStyle = color === BLACK ? "#000" : "#bbb";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+    }
+
+    if (lastMove && board[lastMove.y][lastMove.x] !== EMPTY) {
+      const px = PADDING + lastMove.x * CELL_SIZE;
+      const py = PADDING + lastMove.y * CELL_SIZE;
+
+      if (lastMove.color === WHITE) {
+        const size = STONE_RADIUS * 0.7;
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(px - size / 2, py - size / 2, size, size);
+      } else if (lastMove.color === BLACK) {
+        ctx.beginPath();
+        ctx.arc(px, py, STONE_RADIUS * 0.38, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+      }
+    }
+  }
+
+  function getLiberties(x, y, targetBoard, visited = new Set()) {
+    const color = targetBoard[y][x];
+    const key = `${x},${y}`;
+    if (visited.has(key)) return { stones: [], liberties: new Set() };
+    visited.add(key);
+
+    let stones = [{x, y}];
+    let liberties = new Set();
+    const neighbors = [[x+1, y], [x-1, y], [x, y+1], [x, y-1]];
+
+    for (const [nx, ny] of neighbors) {
+      if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE) {
+        if (targetBoard[ny][nx] === EMPTY) {
+          liberties.add(`${nx},${ny}`);
+        } else if (targetBoard[ny][nx] === color) {
+          const next = getLiberties(nx, ny, targetBoard, visited);
+          stones = stones.concat(next.stones);
+          next.liberties.forEach(lib => liberties.add(lib));
+        }
+      }
+    }
+    return { stones, liberties };
+  }
+
+  function calculateScore(targetBoard = board, targetCaps = caps) {
+    let bTerr = 0, wTerr = 0;
+    const visited = Array(SIZE).fill(null).map(() => Array(SIZE).fill(false));
+
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        if (targetBoard[y][x] === EMPTY && !visited[y][x]) {
+          const queue = [[x, y]];
+          visited[y][x] = true;
+          let touchesBlack = false;
+          let touchesWhite = false;
+          let zoneSize = 0;
+
+          while (queue.length > 0) {
+            const [cx, cy] = queue.shift();
+            zoneSize++;
+            const neighbors = [[cx+1, cy], [cx-1, cy], [cx, cy+1], [cx, cy-1]];
+
+            for (const [nx, ny] of neighbors) {
+              if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE) {
+                if (targetBoard[ny][nx] === EMPTY && !visited[ny][nx]) {
+                  visited[ny][nx] = true;
+                  queue.push([nx, ny]);
+                } else if (targetBoard[ny][nx] === BLACK) {
+                  touchesBlack = true;
+                } else if (targetBoard[ny][nx] === WHITE) {
+                  touchesWhite = true;
+                }
+              }
+            }
+          }
+
+          if (touchesBlack && !touchesWhite) bTerr += zoneSize;
+          if (touchesWhite && !touchesBlack) wTerr += zoneSize;
+        }
+      }
+    }
+
+    const totalBlack = targetCaps[BLACK] + bTerr;
+    const totalWhite = targetCaps[WHITE] + wTerr + 5.5;
+    return { bTerr, wTerr, totalBlack, totalWhite };
+  }
+
+  function estimateWinProbability(targetBoard, targetCaps) {
+    const scores = calculateScore(targetBoard, targetCaps);
+    const diff = scores.totalBlack - scores.totalWhite;
+    return 1 / (1 + Math.exp(-diff / 6));
+  }
+
+  function escapeSgfValue(value) {
+    return String(value).replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+  }
+
+  function buildCompletedGameSgf(gameResult) {
+    const blackPlayer = userColor === BLACK ? activeProfileName : `Sensei ${botRank}k`;
+    const whitePlayer = userColor === WHITE ? activeProfileName : `Sensei ${botRank}k`;
+    const moves = moveHistory.map(({ color, coord }) => {
+      if (coord === "Pass") return `;${color}[]`;
+      const x = COLS.indexOf(coord[0]);
+      const y = SIZE - Number(coord.slice(1));
+      if (x < 0 || y < 0 || y >= SIZE) return "";
+      return `;${color}[${String.fromCharCode(97 + x)}${String.fromCharCode(97 + y)}]`;
+    }).join("");
+
+    return `(;GM[1]FF[4]CA[UTF-8]AP[Go Coach]SZ[${SIZE}]KM[5.5]PB[${escapeSgfValue(blackPlayer)}]PW[${escapeSgfValue(whitePlayer)}]RE[${gameResult}]${moves})`;
+  }
+
+  async function saveCompletedGame(gameResult, sgfContent) {
+    try {
+      const sessionResult = await window.supabaseClient?.auth?.getSession?.();
+      const token = (typeof userSupabaseToken !== "undefined" && userSupabaseToken)
+        || window.userSupabaseToken
+        || sessionResult?.data?.session?.access_token
+        || "guest-dev-token";
+      const headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/games/complete`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          user_color: userColor === BLACK ? "Black" : "White",
+          result: gameResult,
+          sgf: sgfContent,
+          moves_summary: moveHistory.map(move => `${move.color}:${move.coord}`).join(", ")
+        })
+      });
+      if (!response.ok) throw new Error(`Request failed (${response.status})`);
+    } catch (err) {
+      console.error("Failed to save completed game:", err);
+    }
+  }
+
+  function triggerEndGame(winner, reason) {
+    if (gameOver) return;
+    gameOver = true;
+    const scores = calculateScore();
+    recordGameResult(winner, scores, reason);
+    const resultColor = winner === BLACK ? "B" : "W";
+    const gameResult = /resign|bowed/i.test(reason)
+      ? `${resultColor}+Resignation`
+      : `${resultColor}+${Math.abs(scores.totalBlack - scores.totalWhite).toFixed(1)}`;
+    saveCompletedGame(gameResult, buildCompletedGameSgf(gameResult));
+
+    document.getElementById("blackScore").innerText = scores.totalBlack.toFixed(1);
+    document.getElementById("whiteScore").innerText = scores.totalWhite.toFixed(1);
+    document.getElementById("bCaps").innerText = caps[BLACK];
+    document.getElementById("wCaps").innerText = caps[WHITE];
+    document.getElementById("bTerr").innerText = scores.bTerr;
+    document.getElementById("wTerr").innerText = scores.wTerr;
+
+    const isUserWin = (winner === userColor);
+    document.getElementById("scrollTitle").innerText = isUserWin ? "Victory!" : "Defeat";
+    document.getElementById("scrollTitle").style.color = isUserWin ? "#1b6f3b" : "#8c2d19";
+    document.getElementById("scrollReason").innerText = reason;
+
+    endGameModal.classList.remove("hidden");
+  }
+
+  function boardsMatch(b1, b2) {
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        if (b1[y][x] !== b2[y][x]) return false;
+      }
+    }
+    return true;
+  }
+
+  // --- EXECUTE MOVE WITH KO VALIDATION ---
+  function executeMove(gx, gy, playerColor) {
+    if (board[gy][gx] !== EMPTY) return false;
+
+    const previousBoard = board.map(row => [...row]);
+    const previousCaps = { ...caps };
+    const previousProb = estimateWinProbability(previousBoard, previousCaps);
+    const groupBefore = getGroupAt(previousBoard, gx, gy);
+    const moveStartedAt = playerColor === userColor ? userMoveStartedAt : 0;
+    const thinkTimeMs = playerColor === userColor && moveStartedAt ? Math.max(0, performance.now() - moveStartedAt) : 0;
+    let bestCandidateScore = null;
+    if (playerColor === userColor) {
+      const candidates = getSearchCandidates(previousBoard, playerColor, SIZE >= 19 ? 8 : 12, SIZE >= 19 ? performance.now() + 120 : Infinity);
+      if (candidates.length) bestCandidateScore = candidates[0].score;
+    }
+
+    const nextBoard = board.map(row => [...row]);
+    nextBoard[gy][gx] = playerColor;
+
+    const opponent = (playerColor === BLACK) ? WHITE : BLACK;
+    const neighbors = [[gx+1, gy], [gx-1, gy], [gx, gy+1], [gx, gy-1]];
+    let capturedStones = [];
+
+    for (const [nx, ny] of neighbors) {
+      if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE && nextBoard[ny][nx] === opponent) {
+        const group = getLiberties(nx, ny, nextBoard);
+        if (group.liberties.size === 0) {
+          capturedStones = capturedStones.concat(group.stones);
+        }
+      }
+    }
+
+    capturedStones.forEach(s => nextBoard[s.y][s.x] = EMPTY);
+
+    // Check suicide rule
+    const selfGroup = getLiberties(gx, gy, nextBoard);
+    if (selfGroup.liberties.size === 0) return false;
+
+    // Check Simple Ko Rule: Cannot recreate the exact board state from 2 half-turns ago
+    if (gameSnapshots.length >= 2) {
+      const prevSnap = gameSnapshots[gameSnapshots.length - 2];
+      if (boardsMatch(nextBoard, prevSnap.board)) {
+        return false;
+      }
+    }
+
+    board = nextBoard;
+    caps[playerColor] += capturedStones.length;
+    consecutivePasses = 0;
+
+    const coord = `${COLS[gx]}${SIZE - gy}`;
+    moveHistory.push({ color: playerColor === BLACK ? "B" : "W", coord: coord });
+    lastMove = { x: gx, y: gy, color: playerColor };
+
+    const prob = estimateWinProbability(board, caps);
+    gameSnapshots.push({
+      board: board.map(row => [...row]),
+      caps: { ...caps },
+      lastMove: { ...lastMove },
+      turn: opponent,
+      moveCount: moveCount,
+      blackProb: prob
+    });
+
+    moveCount++;
+    turn = opponent;
+    if (opponent === userColor) userMoveStartedAt = performance.now();
+    if (playerColor === userColor) {
+      const playedScore = evaluateBotPosition(board, playerColor, 0, { x: gx, y: gy });
+      const pointLoss = Math.max(0, (bestCandidateScore ?? playedScore) - playedScore);
+      const userBeforeProb = userColor === BLACK ? previousProb : 1 - previousProb;
+      const userAfterProb = userColor === BLACK ? prob : 1 - prob;
+      const winRateSwing = Math.max(0, userBeforeProb - userAfterProb);
+      const archetypes = getMoveArchetypes(previousBoard, board, gx, gy, playerColor, capturedStones.length, groupBefore);
+      const classification = classifyPointLoss(pointLoss, winRateSwing);
+      const moveRecord = {
+        move: moveCount - 1,
+        coord,
+        phase: getGamePhase(),
+        thinkTimeMs,
+        hoverTimeMs: hoverTimeMs,
+        scrubTimeMs: scrubTimeMs,
+        pointLoss: +pointLoss.toFixed(3),
+        winRateSwing: +winRateSwing.toFixed(4),
+        classification,
+        underAttack: groupBefore.liberties.size > 0 && groupBefore.liberties.size <= 2,
+        captures: capturedStones.length,
+        archetypes
+      };
+      moveTelemetry.push(moveRecord);
+      recordUserMoveTelemetry(moveRecord);
+      userMoveStartedAt = performance.now();
+      hoverTimeMs = 0;
+      scrubTimeMs = 0;
+    }
+    drawBoard();
+    return true;
+  }
+
+  function passTurn(playerColor) {
+    if (gameOver || inReviewMode || turn !== playerColor) return false;
+
+    consecutivePasses++;
+    moveHistory.push({ color: playerColor === BLACK ? "B" : "W", coord: "Pass" });
+    lastMove = null;
+    const opponent = playerColor === BLACK ? WHITE : BLACK;
+    gameSnapshots.push({
+      board: board.map(row => [...row]),
+      caps: { ...caps },
+      lastMove: null,
+      turn: opponent,
+      moveCount: moveCount,
+      blackProb: estimateWinProbability(board, caps)
+    });
+    moveCount++;
+    turn = opponent;
+    if (playerColor === userColor) {
+      const passRecord = {
+        move: moveCount - 1,
+        coord: "Pass",
+        phase: getGamePhase(),
+        thinkTimeMs: Math.max(0, performance.now() - userMoveStartedAt),
+        hoverTimeMs,
+        scrubTimeMs,
+        pointLoss: 0,
+        winRateSwing: 0,
+        classification: "good",
+        underAttack: false,
+        captures: 0,
+        archetypes: { sente: false, tenuki: false, cutting: false, connecting: false, defending: false, overExtension: false }
+      };
+      moveTelemetry.push(passRecord);
+      recordUserMoveTelemetry(passRecord);
+      userMoveStartedAt = performance.now();
+      hoverTimeMs = 0;
+      scrubTimeMs = 0;
+    }
+    drawBoard();
+
+    if (consecutivePasses >= 2) {
+      const scores = calculateScore();
+      const winner = scores.totalBlack >= scores.totalWhite ? BLACK : WHITE;
+      triggerEndGame(winner, "Both players passed. The board is ready for scoring.");
+    }
+    return true;
+  }
+
+  function showOpponentPassed() {
+    clearTimeout(passBannerTimeout);
+    passBanner.classList.remove("hidden");
+    passBannerTimeout = setTimeout(() => {
+      passBanner.classList.add("hidden");
+    }, 1600);
+  }
+
+  function simulateBotMove(targetBoard, x, y, playerColor, enforceKo = true) {
+    if (targetBoard[y][x] !== EMPTY) return null;
+
+    const nextBoard = targetBoard.map(row => [...row]);
+    nextBoard[y][x] = playerColor;
+    const opponent = playerColor === BLACK ? WHITE : BLACK;
+    const captured = new Set();
+    const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+
+    for (const [nx, ny] of neighbors) {
+      if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE && nextBoard[ny][nx] === opponent) {
+        const group = getLiberties(nx, ny, nextBoard);
+        if (group.liberties.size === 0) group.stones.forEach(stone => captured.add(`${stone.x},${stone.y}`));
+      }
+    }
+
+    captured.forEach(key => {
+      const [cx, cy] = key.split(",").map(Number);
+      nextBoard[cy][cx] = EMPTY;
+    });
+
+    if (getLiberties(x, y, nextBoard).liberties.size === 0) return null;
+    if (enforceKo && gameSnapshots.length >= 2 && boardsMatch(nextBoard, gameSnapshots[gameSnapshots.length - 2].board)) return null;
+    return { board: nextBoard, captures: captured.size };
+  }
+
+  function countLocalInfluence(targetBoard, x, y, playerColor) {
+    let influence = 0;
+    const radius = SIZE >= 19 ? 3 : 2;
+    for (let cy = Math.max(0, y - radius); cy <= Math.min(SIZE - 1, y + radius); cy++) {
+      for (let cx = Math.max(0, x - radius); cx <= Math.min(SIZE - 1, x + radius); cx++) {
+        const distance = Math.abs(cx - x) + Math.abs(cy - y);
+        if (distance > radius) continue;
+        if (targetBoard[cy][cx] === playerColor) influence += 1 / (distance + 1);
+        if (targetBoard[cy][cx] !== EMPTY && targetBoard[cy][cx] !== playerColor) influence -= 1 / (distance + 1);
+      }
+    }
+    return influence;
+  }
+
+  function evaluateBotPosition(targetBoard, playerColor, captures = 0, move = null, opponentCaptures = 0) {
+    const opponent = playerColor === BLACK ? WHITE : BLACK;
+    const simulatedCaps = { ...caps };
+    simulatedCaps[playerColor] += captures;
+    simulatedCaps[opponent] += opponentCaptures;
+    const scores = calculateScore(targetBoard, simulatedCaps);
+    let playerLiberties = 0;
+    let opponentLiberties = 0;
+    let playerGroupRisk = 0;
+    let opponentGroupRisk = 0;
+    const visited = new Set();
+
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        if (targetBoard[y][x] !== playerColor && targetBoard[y][x] !== opponent) continue;
+        const key = `${x},${y}`;
+        if (visited.has(key)) continue;
+        const group = getLiberties(x, y, targetBoard, new Set());
+        group.stones.forEach(stone => visited.add(`${stone.x},${stone.y}`));
+        const risk = group.stones.length * (group.liberties.size === 1 ? 5 : group.liberties.size === 2 ? 1.5 : 0);
+        if (targetBoard[y][x] === playerColor) {
+          playerLiberties += group.liberties.size;
+          playerGroupRisk += risk;
+        } else {
+          opponentLiberties += group.liberties.size;
+          opponentGroupRisk += risk;
+        }
+      }
+    }
+
+    const territory = playerColor === BLACK
+      ? scores.totalBlack - scores.totalWhite
+      : scores.totalWhite - scores.totalBlack;
+    const influence = move ? countLocalInfluence(targetBoard, move.x, move.y, playerColor) : 0;
+    let openingValue = 0;
+    if (move && moveCount < 8) {
+      const edgeDistance = Math.min(move.x, move.y, SIZE - 1 - move.x, SIZE - 1 - move.y);
+      const starLine = SIZE === 9 ? 2 : 3;
+      const starLines = SIZE === 19 ? [3, 9, 15] : SIZE === 13 ? [3, 6, 9] : [2, 4, 6];
+      const isStarPoint = starLines.includes(move.x) && starLines.includes(move.y)
+        && (move.x !== Math.floor(SIZE / 2) || move.y !== Math.floor(SIZE / 2));
+      openingValue = edgeDistance <= 1 ? -4 : edgeDistance <= starLine ? 0.5 : -0.3;
+      if (isStarPoint) openingValue += 4;
+      else if (edgeDistance === starLine + 1) openingValue += 0.5;
+      if (moveCount < 4 && move.x === Math.floor(SIZE / 2) && move.y === Math.floor(SIZE / 2)) {
+        openingValue -= 0.5;
+      }
+    }
+    return territory * 3 + (playerLiberties - opponentLiberties) * 0.08
+      + (opponentGroupRisk - playerGroupRisk) * 1.4 + influence * 0.8 + openingValue;
+  }
+
+  function isBotEye(targetBoard, x, y, playerColor) {
+    const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+    if (!neighbors.every(([nx, ny]) => nx < 0 || nx >= SIZE || ny < 0 || ny >= SIZE || targetBoard[ny][nx] === playerColor)) return false;
+    let friendlyDiagonals = 0;
+    let diagonalCount = 0;
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE) {
+        diagonalCount++;
+        if (targetBoard[ny][nx] === playerColor) friendlyDiagonals++;
+      }
+    }
+    return friendlyDiagonals >= (diagonalCount === 4 ? 3 : Math.max(1, diagonalCount - 1));
+  }
+
+  function getSearchCandidates(targetBoard, playerColor, limit = 16, deadline = Infinity, enforceKo = false) {
+    const candidates = [];
+    let searchExpired = false;
+    const occupied = [];
+    const points = [];
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        if (targetBoard[y][x] !== EMPTY) occupied.push({ x, y });
+        else points.push({ x, y });
+      }
+    }
+    const center = (SIZE - 1) / 2;
+    points.forEach(point => {
+      point.priority = occupied.length
+        ? Math.min(...occupied.map(stone => Math.abs(point.x - stone.x) + Math.abs(point.y - stone.y)))
+        : Math.abs(point.x - center) + Math.abs(point.y - center);
+      point.centerDistance = Math.abs(point.x - center) + Math.abs(point.y - center);
+    });
+    points.sort((a, b) => a.priority - b.priority || a.centerDistance - b.centerDistance);
+
+    for (const { x, y } of points) {
+      if (performance.now() >= deadline) {
+        searchExpired = true;
+        break;
+      }
+      const result = simulateBotMove(targetBoard, x, y, playerColor, enforceKo);
+      if (result) {
+        const nextGroup = getLiberties(x, y, result.board);
+        const eyePenalty = isBotEye(targetBoard, x, y, playerColor) && result.captures === 0 ? 12 : 0;
+        candidates.push({ x, y, board: result.board, captures: result.captures,
+          score: evaluateBotPosition(result.board, playerColor, result.captures, { x, y })
+            - (nextGroup.liberties.size === 1 && result.captures === 0 ? nextGroup.stones.length * 8 : 0)
+            - eyePenalty });
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates.slice(0, limit);
+  }
+
+  function getAdvancedBotMove() {
+    const isFullBoard = SIZE >= 19;
+    const searchDeadline = isFullBoard ? performance.now() + 500 : Infinity;
+    const candidateLimit = SIZE >= 19 ? 12 : SIZE >= 13 ? 16 : 20;
+    const candidates = getSearchCandidates(board, botColor, candidateLimit, searchDeadline, true);
+    if (candidates.length === 0) return null;
+    const searchDepth = isFullBoard ? 1 : (botRank <= 20 ? 2 : 1);
+    let bestMove = candidates[0];
+    let bestScore = -Infinity;
+    const currentScore = evaluateBotPosition(board, botColor);
+
+    for (const candidate of candidates) {
+      if (performance.now() >= searchDeadline) break;
+      let score = candidate.score;
+      if (searchDepth === 2) {
+        const replies = getSearchCandidates(candidate.board, userColor, 10, searchDeadline);
+        if (replies.length > 0) {
+          const worstReply = replies.reduce((worst, reply) => Math.min(
+            worst,
+            evaluateBotPosition(reply.board, botColor, candidate.captures, reply, reply.captures)
+          ), Infinity);
+          score = score * 0.35 + worstReply * 0.65;
+        }
+      }
+      score += Math.random() * 0.01;
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = candidate;
+      }
+    }
+    if (botRank === 25 && candidates.length > 3 && Math.random() < 0.65) {
+      const alternatives = candidates.slice(2, 8);
+      bestMove = alternatives[Math.floor(Math.random() * alternatives.length)];
+      bestScore = bestMove.score;
+    }
+    const passThreshold = botRank <= 5 ? 0.15 : 0.45;
+    const allowEndgamePass = moveCount > SIZE * 2 || candidates.length < SIZE;
+    if (allowEndgamePass && bestMove.captures === 0 && bestScore <= currentScore + passThreshold) return null;
+    return bestMove;
+  }
+
+  // --- BOT HEURISTIC MOVE ENGINE (KO-AWARE) ---
+  function getBotMove() {
+    const legalMoves = [];
+
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        if (board[y][x] === EMPTY) {
+          const testBoard = board.map(row => [...row]);
+          testBoard[y][x] = botColor;
+          const opponent = userColor;
+          const neighbors = [[x+1, y], [x-1, y], [x, y+1], [x, y-1]];
+          let capturedStones = [];
+
+          for (const [nx, ny] of neighbors) {
+            if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE && testBoard[ny][nx] === opponent) {
+              const grp = getLiberties(nx, ny, testBoard);
+              if (grp.liberties.size === 0) {
+                capturedStones = capturedStones.concat(grp.stones);
+              }
+            }
+          }
+
+          capturedStones.forEach(s => testBoard[s.y][s.x] = EMPTY);
+          const selfGrp = getLiberties(x, y, testBoard);
+
+          if (selfGrp.liberties.size > 0) {
+            // Check Ko constraint for the Bot so it never loops
+            let isKo = false;
+            if (gameSnapshots.length >= 2) {
+              const prevSnap = gameSnapshots[gameSnapshots.length - 2];
+              isKo = boardsMatch(testBoard, prevSnap.board);
+            }
+
+            if (!isKo) {
+              legalMoves.push({ x, y, capsCount: capturedStones.length });
+            }
+          }
+        }
+      }
+    }
+
+    if (legalMoves.length === 0) return null;
+
+    if (botRank === 30) {
+      const adjacentMoves = legalMoves.filter(m => {
+        const neighbors = [[m.x+1, m.y], [m.x-1, m.y], [m.x, m.y+1], [m.x, m.y-1]];
+        return neighbors.some(([nx, ny]) => nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE && board[ny][nx] !== EMPTY);
+      });
+      const pool = adjacentMoves.length > 0 ? adjacentMoves : legalMoves;
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    const captureMoves = legalMoves.filter(m => m.capsCount > 0);
+    if (captureMoves.length > 0 && botRank === 30) {
+      captureMoves.sort((a, b) => b.capsCount - a.capsCount);
+      return captureMoves[0];
+    }
+    if (botRank <= 25) return getAdvancedBotMove();
+    return legalMoves[Math.floor(Math.random() * legalMoves.length)];
+  }
+
+  function runBotTurn() {
+    if (gameOver || inReviewMode) return;
+    botThinking = true;
+    updateStatus();
+
+    setTimeout(() => {
+      if (allowResign && moveCount > 15) {
+        const scores = calculateScore();
+        const botScore = botColor === BLACK ? scores.totalBlack : scores.totalWhite;
+        const userScore = botColor === BLACK ? scores.totalWhite : scores.totalBlack;
+
+        if (userScore - botScore > 25) {
+          triggerEndGame(userColor, `The Bot resigned after falling ${Math.round(userScore - botScore)} points behind.`);
+          botThinking = false;
+          return;
+        }
+      }
+
+      const move = getBotMove();
+      if (move) {
+        executeMove(move.x, move.y, botColor);
+      } else {
+        const passed = passTurn(botColor);
+        if (passed && !gameOver) showOpponentPassed();
+      }
+      botThinking = false;
+      updateStatus();
+    }, 450);
+  }
+
+  canvas.addEventListener("mousemove", (e) => {
+    if (gameOver || inReviewMode || turn !== userColor || botThinking) return;
+    const rect = canvas.getBoundingClientRect();
+    const gx = Math.round((e.clientX - rect.left - PADDING) / CELL_SIZE);
+    const gy = Math.round((e.clientY - rect.top - PADDING) / CELL_SIZE);
+    const key = gx >= 0 && gx < SIZE && gy >= 0 && gy < SIZE ? `${gx},${gy}` : "";
+    if (key !== hoverPointKey) {
+      if (hoverStartedAt) hoverTimeMs += performance.now() - hoverStartedAt;
+      hoverPointKey = key;
+      hoverStartedAt = key ? performance.now() : 0;
+    }
+  });
+  canvas.addEventListener("mouseleave", () => {
+    if (hoverStartedAt) hoverTimeMs += performance.now() - hoverStartedAt;
+    hoverStartedAt = 0;
+    hoverPointKey = "";
+  });
+  canvas.addEventListener("click", (e) => {
+    if (gameOver || inReviewMode || turn !== userColor || botThinking) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    const gx = Math.round((clickX - PADDING) / CELL_SIZE);
+    const gy = Math.round((clickY - PADDING) / CELL_SIZE);
+
+    if (gx < 0 || gx >= SIZE || gy < 0 || gy >= SIZE) return;
+
+    const success = executeMove(gx, gy, userColor);
+    if (!success) {
+      alert("Illegal move: occupied, suicide, or Ko violation (cannot immediately recapture to repeat the board state).");
+      return;
+    }
+
+    updateStatus();
+    runBotTurn();
+  });
+
+  passBtn.addEventListener("click", () => {
+    if (gameOver || inReviewMode || turn !== userColor || botThinking) return;
+    if (passTurn(userColor)) {
+      updateStatus();
+      if (!gameOver) runBotTurn();
+    }
+  });
+
+  // --- REVIEW MODE & GRAPH ENGINE ---
+  function enterReviewMode() {
+    inReviewMode = true;
+    endGameModal.classList.add("hidden");
+    reviewPanel.classList.remove("hidden");
+    reviewIndex = gameSnapshots.length - 1;
+    loadReviewSnapshot(reviewIndex);
+    addManuscriptEntry("Sensei", "Entering review mode. Drag across the win-rate graph to inspect any move, or assess historical positions.");
+  }
+
+  function loadReviewSnapshot(index) {
+    reviewIndex = Math.max(0, Math.min(index, gameSnapshots.length - 1));
+    const snap = gameSnapshots[reviewIndex];
+
+    board = snap.board.map(row => [...row]);
+    caps = { ...snap.caps };
+    lastMove = snap.lastMove ? { ...snap.lastMove } : null;
+    turn = snap.turn;
+
+    updateStatus();
+    drawBoard();
+    drawWinRateGraph();
+  }
+
+  function drawWinRateGraph() {
+    const w = graphCanvas.width;
+    const h = graphCanvas.height;
+    gctx.clearRect(0, 0, w, h);
+
+    // Baseline (50%)
+    gctx.strokeStyle = "#444455";
+    gctx.setLineDash([3, 3]);
+    gctx.beginPath();
+    gctx.moveTo(0, h / 2);
+    gctx.lineTo(w, h / 2);
+    gctx.stroke();
+    gctx.setLineDash([]);
+
+    if (gameSnapshots.length <= 1) return;
+
+    const stepX = w / (gameSnapshots.length - 1);
+    gctx.beginPath();
+    gctx.lineWidth = 2;
+    gctx.strokeStyle = "#e4a758";
+
+    gameSnapshots.forEach((s, idx) => {
+      const x = idx * stepX;
+      const y = h - (s.blackProb * h);
+      if (idx === 0) gctx.moveTo(x, y);
+      else gctx.lineTo(x, y);
+    });
+    gctx.stroke();
+
+    const curX = reviewIndex * stepX;
+    const curProb = gameSnapshots[reviewIndex].blackProb;
+    const curY = h - (curProb * h);
+
+    gctx.fillStyle = "#ffffff";
+    gctx.beginPath();
+    gctx.arc(curX, curY, 4.5, 0, Math.PI * 2);
+    gctx.fill();
+
+    const bPct = Math.round(curProb * 100);
+    graphValText.innerText = `Move ${reviewIndex} | Black: ${bPct}% | White: ${100 - bPct}%`;
+  }
+
+  function handleGraphInteraction(e) {
+    if (gameSnapshots.length <= 1) return;
+
+    const rect = graphCanvas.getBoundingClientRect();
+    const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const ratio = clickX / rect.width;
+
+    const targetIndex = Math.round(ratio * (gameSnapshots.length - 1));
+    loadReviewSnapshot(targetIndex);
+  }
+
+  graphCanvas.addEventListener("click", handleGraphInteraction);
+
+  let isScrubbing = false;
+  graphCanvas.addEventListener("mousedown", (e) => {
+    isScrubbing = true;
+    scrubStartedAt = performance.now();
+    handleGraphInteraction(e);
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (isScrubbing) handleGraphInteraction(e);
+  });
+  window.addEventListener("mouseup", () => {
+    if (scrubStartedAt) scrubTimeMs += performance.now() - scrubStartedAt;
+    scrubStartedAt = 0;
+    isScrubbing = false;
+  });
+
+  prevMoveBtn.addEventListener("click", () => loadReviewSnapshot(reviewIndex - 1));
+  nextMoveBtn.addEventListener("click", () => loadReviewSnapshot(reviewIndex + 1));
+  reviewGameBtn.addEventListener("click", enterReviewMode);
+
+  // --- Manuscript Formatting Helper ---
+  function addManuscriptEntry(header, text, isStudent = false) {
+    const entry = document.createElement("div");
+    entry.className = `advice-entry ${isStudent ? 'student-entry' : ''}`;
+    entry.innerHTML = `<div class="advice-header">${header}</div><span class="advice-body">${text}</span>`;
+    chatLog.appendChild(entry);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return entry;
+  }
+
+  function getBoardStateSummary() {
+    let blackStones = [];
+    let whiteStones = [];
+
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        const coord = `${COLS[x]}${SIZE - y}`;
+        if (board[y][x] === BLACK) blackStones.push(coord);
+        if (board[y][x] === WHITE) whiteStones.push(coord);
+      }
+    }
+
+    const scores = calculateScore();
+    const curProb = gameSnapshots[inReviewMode ? reviewIndex : gameSnapshots.length - 1].blackProb;
+
+    return {
+      boardSize: `${SIZE}x${SIZE}`,
+      currentMove: inReviewMode ? reviewIndex : moveCount,
+      turn: turn === BLACK ? "Black" : "White",
+      userPlays: userColor === BLACK ? "Black" : "White",
+      captures: { black: caps[BLACK], white: caps[WHITE] },
+      blackStones: blackStones.join(", ") || "None",
+      whiteStones: whiteStones.join(", ") || "None",
+      blackWinProb: `${Math.round(curProb * 100)}%`,
+      userWinProb: `${Math.round((userColor === BLACK ? curProb : 1 - curProb) * 100)}%`,
+      estimatedScore: `Black: ${scores.totalBlack.toFixed(1)}, White: ${scores.totalWhite.toFixed(1)}`,
+      lastMoves: moveHistory.slice(0, inReviewMode ? reviewIndex : moveCount).slice(-4).map(m => `${m.color}:${m.coord}`).join(", ") || "None"
+    };
+  }
+
+  // --- LLM AI Coach Pipeline ---
+  async function callGeminiCoach(userQuestion) {
+    const state = getBoardStateSummary();
+    const mode = coachModeSelect.value;
+    const cacheKey = JSON.stringify({
+      question: userQuestion,
+      state,
+      persona: currentPersona,
+      mode,
+      reviewIndex: inReviewMode ? reviewIndex : null
+    });
+
+    const cachedReply = coachResponseCache.get(cacheKey);
+    if (cachedReply) {
+      const cachedHeader = inReviewMode ? `Master's Retrospective (Move ${reviewIndex})` : `Sensei Guidance (Move ${moveCount})`;
+      addManuscriptEntry(cachedHeader, cachedReply);
+      return;
+    }
+
+    askCoachBtn.disabled = true;
+    sendBtn.disabled = true;
+    coachModeSelect.disabled = true;
+    activeCoachController?.abort();
+    activeCoachController = new AbortController();
+
+    try {
+      const sessionResult = await window.supabaseClient?.auth?.getSession?.();
+      const token = (typeof userSupabaseToken !== "undefined" && userSupabaseToken)
+        || window.userSupabaseToken
+        || sessionResult?.data?.session?.access_token
+        || "guest-dev-token";
+      const headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      };
+
+      const resp = await fetch(`${API_BASE_URL}/api/coach/chat`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          user_question: userQuestion,
+          board_state: state,
+          persona: currentPersona
+        }),
+        signal: activeCoachController.signal
+      });
+
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || data.error || `Request failed (${resp.status})`);
+
+      const reply = typeof data.reply === "string" ? data.reply.trim() : "";
+      if (!reply) throw new Error("The server returned an empty reply.");
+      const coachHeader = inReviewMode ? `Master's Retrospective (Move ${reviewIndex})` : `Sensei Guidance (Move ${moveCount})`;
+      addManuscriptEntry(coachHeader, reply);
+      if (reply.length >= 20) coachResponseCache.set(cacheKey, reply);
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        console.error("Failed to connect to backend:", err);
+        const message = err instanceof TypeError && /fetch/i.test(err.message)
+          ? `Cannot reach the coach API at ${API_BASE_URL}. Start the backend or configure AI_COACH_API_BASE_URL.`
+          : `The coach request failed: ${err.message || "Unknown error"}`;
+        addManuscriptEntry("Sensei Connection", message);
+      }
+    } finally {
+      askCoachBtn.disabled = false;
+      sendBtn.disabled = false;
+      coachModeSelect.disabled = false;
+      activeCoachController = null;
+    }
+  }
+
+  startGameBtn.addEventListener("click", initGame);
+  playAgainBtn.addEventListener("click", initGame);
+  saveProfileBtn.addEventListener("click", saveProfileName);
+  openStatsBtn.addEventListener("click", () => {
+    saveProfileName();
+    menuModal.classList.add("hidden");
+    statsModal.classList.remove("hidden");
+    renderStats();
+  });
+  closeStatsBtn.addEventListener("click", () => {
+    statsModal.classList.add("hidden");
+    menuModal.classList.remove("hidden");
+  });
+  analyzeStatsBtn.addEventListener("click", analyzePlayerStats);
+  mainMenuBtn.addEventListener("click", () => {
+    endGameModal.classList.add("hidden");
+    reviewPanel.classList.add("hidden");
+    statsModal.classList.add("hidden");
+    menuModal.classList.remove("hidden");
+  });
+  settingsBtn.addEventListener("click", () => {
+    statsModal.classList.add("hidden");
+    menuModal.classList.remove("hidden");
+    renderStats();
+  });
+  coachToggleBtn.addEventListener("click", () => {
+    const collapsed = coachCol.classList.toggle("collapsed");
+    app.classList.toggle("coach-collapsed", collapsed);
+    coachToggleBtn.innerText = collapsed ? "Expand" : "Collapse";
+    coachToggleBtn.setAttribute("aria-expanded", String(!collapsed));
+    requestAnimationFrame(resizeBoardCanvas);
+  });
+
+  window.addEventListener("resize", resizeBoardCanvas);
+
+  resignBtn.addEventListener("click", () => {
+    if (!gameOver && !inReviewMode) triggerEndGame(botColor, "You bowed and resigned the match.");
+  });
+
+  askCoachBtn.addEventListener("click", () => {
+    const q = inReviewMode ? `Assess move ${reviewIndex}. Was this position favorable or a mistake?` : "Assess my position and advise what is most urgent.";
+    addManuscriptEntry("Student Inquiry", q, true);
+    callGeminiCoach(q);
+  });
+
+  sendBtn.addEventListener("click", () => {
+    const text = userInput.value.trim();
+    if (!text) return;
+    addManuscriptEntry("Student Inquiry", text, true);
+    userInput.value = "";
+    callGeminiCoach(text);
+  });
+
+  userInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendBtn.click();
+  });
+
+  renderStats();
+</script>
+</body>
+</html>
