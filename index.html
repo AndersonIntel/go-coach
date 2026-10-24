@@ -600,7 +600,7 @@
 </div>
 
 <script>
-  const API_BASE_URL = (window.AI_COACH_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+  const API_BASE_URL = (window.AI_COACH_API_BASE_URL || "https://go-coach.onrender.com").replace(/\/+$/, "");
   const canvas = document.getElementById("goCanvas");
   const ctx = canvas.getContext("2d");
   const graphCanvas = document.getElementById("graphCanvas");
@@ -1722,7 +1722,7 @@
         const botScore = botColor === BLACK ? scores.totalBlack : scores.totalWhite;
         const userScore = botColor === BLACK ? scores.totalWhite : scores.totalBlack;
 
-        if (userScore - botScore > 25) {
+        if (userScore - botScore > 50) {
           triggerEndGame(userColor, `The Bot resigned after falling ${Math.round(userScore - botScore)} points behind.`);
           botThinking = false;
           return;
