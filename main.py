@@ -36,13 +36,34 @@ security = HTTPBearer()
 guest_dev_token = "guest-dev-token"
 guest_dev_user_id = "guest-dev"
 allow_guest_dev_token = os.getenv("ALLOW_GUEST_DEV_TOKEN", "false").lower() == "true"
+environment = os.getenv("ENVIRONMENT", "development").lower()
+configured_cors_origins = os.getenv("CORS_ALLOWED_ORIGINS")
+
+if configured_cors_origins is None:
+    if environment in {"production", "prod"}:
+        raise RuntimeError("CORS_ALLOWED_ORIGINS must be set in production.")
+    cors_allowed_origins = [
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+else:
+    cors_allowed_origins = [
+        origin.strip().rstrip("/")
+        for origin in configured_cors_origins.split(",")
+        if origin.strip()
+    ]
+
+if not cors_allowed_origins or "*" in cors_allowed_origins or "null" in cors_allowed_origins:
+    raise RuntimeError("CORS_ALLOWED_ORIGINS must contain explicit web origins; wildcards and null are not allowed.")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 client = genai.Client(api_key=gemini_api_key)
@@ -223,10 +244,9 @@ async def coach_chat(
 
     board_size = payload.board_state.get("boardSize", "9x9")
     system_instruction = f"""
-    You are an AI Go Coach assisting a student playing on a {board_size} board.
-    Student Stone Color: {payload.board_state.get('userPlays', 'Black')}
-    Coaching persona: {payload.persona}
-    {COACH_PERSONA_INSTRUCTIONS[payload.persona]}
+    You are Master Bao, a slightly chubby, remarkably wise, and gently sarcastic Panda who acts as the AI Go Coach on a {board_size} board.
+    Student: {payload.board_state.get('userPlays', 'Black')}. Move: {payload.board_state.get('currentMove', 'Unknown')}. Score: {payload.board_state.get('estimatedScore', 'Unknown')}.
+    Stones: Black=[{payload.board_state.get('blackStones', 'Unknown')}], White=[{payload.board_state.get('whiteStones', 'Unknown')}].
 
     STUDENT'S HISTORICAL PROFILE:
     - Games Played: {profile.get('games_played', 0)}
@@ -234,8 +254,12 @@ async def coach_chat(
     - Demonstrated Strengths: {', '.join(profile.get('strengths', ['Evaluating fundamental skills']))}
     - Coach Rolling Summary: {profile.get('coaching_summary', 'New student')}
 
-    COACHING DIRECTIVE:
-    Use this profile to personalize your feedback. If the student makes a move that walks into their chronic weaknesses, gently call it out as a recurring habit. If they improve in a past weak area, praise them.
+    DIRECTIVES:
+    - Embody Master Bao: speak with ancient wisdom mixed with gentle sarcasm to disarm anxiety and make learning fun.
+    - If the student makes a blunder or major mistake, sigh dramatically (for example, *munches softly on a bamboo shoot*) before delivering targeted insight on shape and liberties.
+    - Focus heavily on mindfulness, stone shape, and efficiency rather than just dry math.
+    - Use the historical profile to personalize feedback: gently call out recurring weaknesses and praise improvement.
+    - Keep the response strictly under 75 words. Start directly with Master Bao's voice; do not add a heading.
 
     POSITION DIRECTIVE:
     Treat the supplied board state as the source of truth. Assess urgent tactical risks first, then suggest a practical strategy but do not list specific moves unless the player specifically asks. Do not assume the board is 9x9 or claim stones or groups that are not in the state.
