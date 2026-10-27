@@ -4,7 +4,7 @@ import logging
 from datetime import date
 from typing import Any, Literal
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google import genai
@@ -36,6 +36,7 @@ security = HTTPBearer()
 guest_dev_token = "guest-dev-token"
 guest_dev_user_id = "guest-dev"
 allow_guest_dev_token = os.getenv("ALLOW_GUEST_DEV_TOKEN", "false").lower() == "true"
+unlimited_test_user_id = os.getenv("UNLIMITED_TEST_USER_ID")
 environment = os.getenv("ENVIRONMENT", "development").lower()
 configured_cors_origins = os.getenv("CORS_ALLOWED_ORIGINS")
 
@@ -67,7 +68,7 @@ app.add_middleware(
     allow_origins=cors_allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-User-ID"],
 )
 
 client = genai.Client(api_key=gemini_api_key)
@@ -111,8 +112,15 @@ def get_current_user(
 
 def get_coach_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
 ) -> str:
-    return get_current_user(credentials)
+    user_id = get_current_user(credentials)
+    if x_user_id is not None and x_user_id != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="X-User-ID does not match the authenticated user.",
+        )
+    return user_id
 
 
 def get_player_profile(user_id: str) -> dict[str, Any]:
@@ -186,6 +194,9 @@ def check_and_increment_usage(
     user_id: str, profile: dict[str, Any] | None = None
 ) -> bool:
     """Allow subscribed users or increment a free user's daily usage."""
+    if unlimited_test_user_id and user_id == unlimited_test_user_id:
+        return True
+
     profile = profile or get_player_profile(user_id)
 
     if profile.get("is_subscribed"):
@@ -196,11 +207,11 @@ def check_and_increment_usage(
     if profile.get("last_usage_date") != today:
         usage_count = 0
 
-    daily_limit = 3
+    daily_limit = 5
     if usage_count >= daily_limit:
         raise HTTPException(
             status_code=429,
-            detail="Daily free limit reached. Subscribe for unlimited AI coaching!",
+            detail="Daily free limit reached (5/5). Master Bao says: 'Even a panda needs rest—or a Pro subscription for infinite wisdom!'",
         )
 
     (
