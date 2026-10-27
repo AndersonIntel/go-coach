@@ -55,6 +55,10 @@ else:
         if origin.strip()
     ]
 
+netlify_app_origin = "https://gocoach.rocknrollinstudios.com"
+if netlify_app_origin not in cors_allowed_origins:
+    cors_allowed_origins.append(netlify_app_origin)
+
 if not cors_allowed_origins or "*" in cors_allowed_origins or "null" in cors_allowed_origins:
     raise RuntimeError("CORS_ALLOWED_ORIGINS must contain explicit web origins; wildcards and null are not allowed.")
 
