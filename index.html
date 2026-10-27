@@ -740,6 +740,26 @@
     }).catch(setAuthError);
   }
 
+  async function getBackendAuthHeaders() {
+    let session = null;
+    if (supabaseAuthClient) {
+      const { data, error } = await supabaseAuthClient.auth.getSession();
+      if (error) throw error;
+      session = data.session;
+    }
+
+    const token = session?.access_token
+      || (typeof userSupabaseToken !== "undefined" && userSupabaseToken)
+      || window.userSupabaseToken
+      || "guest-dev-token";
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    };
+    if (session?.user?.id) headers["X-User-ID"] = session.user.id;
+    return headers;
+  }
+
   const canvas = document.getElementById("goCanvas");
   const ctx = canvas.getContext("2d");
   const graphCanvas = document.getElementById("graphCanvas");
@@ -1077,22 +1097,11 @@
   Mention sample size and distinguish fast blunders from slow overthinking. Explain that point loss is an engine estimate, not absolute truth.
 
   ${getStatsSummary()}`;
-    try {
-      const sessionResult = await window.supabaseClient?.auth?.getSession?.();
-      const token = (typeof userSupabaseToken !== "undefined" && userSupabaseToken)
-        || window.userSupabaseToken
-        || sessionResult?.data?.session?.access_token
-        || "guest-dev-token";
-      const resp = await fetch(`${API_BASE_URL}/api/coach/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(sessionResult?.data?.session?.user?.id
-            ? { "X-User-ID": sessionResult.data.session.user.id }
-            : {}),
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
+  try {
+    const resp = await fetch(`${API_BASE_URL}/api/coach/chat`, {
+      method: "POST",
+      headers: await getBackendAuthHeaders(),
+      body: JSON.stringify({
           user_question: prompt,
           board_state: {
             userPlays: userColor === BLACK ? "Black" : "White",
@@ -1389,19 +1398,9 @@
 
   async function saveCompletedGame(gameResult, sgfContent) {
     try {
-      const sessionResult = await window.supabaseClient?.auth?.getSession?.();
-      const token = (typeof userSupabaseToken !== "undefined" && userSupabaseToken)
-        || window.userSupabaseToken
-        || sessionResult?.data?.session?.access_token
-        || "guest-dev-token";
-      const headers = {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      };
-
       const response = await fetch(`${API_BASE_URL}/api/games/complete`, {
         method: "POST",
-        headers,
+        headers: await getBackendAuthHeaders(),
         body: JSON.stringify({
           user_color: userColor === BLACK ? "Black" : "White",
           result: gameResult,
@@ -2094,22 +2093,9 @@
     activeCoachController = new AbortController();
 
     try {
-      const sessionResult = await window.supabaseClient?.auth?.getSession?.();
-      const token = (typeof userSupabaseToken !== "undefined" && userSupabaseToken)
-        || window.userSupabaseToken
-        || sessionResult?.data?.session?.access_token
-        || "guest-dev-token";
-      const headers = {
-        "Content-Type": "application/json",
-        ...(sessionResult?.data?.session?.user?.id
-          ? { "X-User-ID": sessionResult.data.session.user.id }
-          : {}),
-        Authorization: `Bearer ${token}`
-      };
-
       const resp = await fetch(`${API_BASE_URL}/api/coach/chat`, {
         method: "POST",
-        headers,
+        headers: await getBackendAuthHeaders(),
         body: JSON.stringify({
           user_question: userQuestion,
           board_state: state,
