@@ -3,8 +3,10 @@ import json
 import logging
 from datetime import date
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+import stripe
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google import genai
@@ -26,6 +28,10 @@ if not gemini_api_key:
 
 supabase_url = os.getenv("SUPABASE_URL")
 supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+stripe_secret_key = os.getenv("STRIPE_SECRET_KEY")
+stripe_price_id = os.getenv("STRIPE_PRICE_ID")
+stripe_webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+frontend_url = os.getenv("FRONTEND_URL")
 
 if not supabase_url or not supabase_service_role_key:
     raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
@@ -208,9 +214,204 @@ def get_profile_history(
             "strengths": profile.get("strengths", []),
             "weaknesses": profile.get("weaknesses", []),
             "coaching_summary": profile.get("coaching_summary", ""),
+            "is_subscribed": bool(profile.get("is_subscribed")),
         },
         "games": games_response.data or [],
     }
+
+
+def get_configured_frontend_url() -> str:
+    if not frontend_url:
+        raise HTTPException(
+            status_code=503,
+            detail="Subscription checkout is not configured: FRONTEND_URL is missing.",
+        )
+
+    parsed_url = urlsplit(frontend_url)
+    if (
+        parsed_url.scheme not in {"http", "https"}
+        or not parsed_url.netloc
+        or parsed_url.username
+        or parsed_url.password
+        or parsed_url.path not in {"", "/"}
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Subscription checkout is not configured with a valid FRONTEND_URL.",
+        )
+
+    return f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+
+@app.post("/api/billing/checkout-session")
+def create_checkout_session(
+    user_id: str = Depends(get_current_user),
+) -> dict[str, str]:
+    if user_id == guest_dev_user_id:
+        raise HTTPException(status_code=403, detail="Log in before starting checkout.")
+    if not stripe_secret_key or not stripe_price_id or not stripe_webhook_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Subscription checkout and webhook are not fully configured on the server.",
+        )
+
+    profile = get_player_profile(user_id)
+    if profile.get("is_subscribed"):
+        raise HTTPException(status_code=409, detail="This account already has Pro access.")
+
+    app_url = get_configured_frontend_url()
+    stripe.api_key = stripe_secret_key
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            line_items=[{"price": stripe_price_id, "quantity": 1}],
+            client_reference_id=user_id,
+            metadata={"supabase_user_id": user_id},
+            subscription_data={"metadata": {"supabase_user_id": user_id}},
+            success_url=f"{app_url}/?checkout=success&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{app_url}/?checkout=cancel",
+        )
+    except stripe.StripeError as error:
+        logger.exception("Unable to create Stripe Checkout session")
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to start subscription checkout. Please try again.",
+        ) from error
+
+    if not session.url:
+        logger.error("Stripe Checkout session %s did not include a URL", session.id)
+        raise HTTPException(
+            status_code=502,
+            detail="Stripe did not return a checkout URL. Please try again.",
+        )
+
+    return {"url": session.url}
+
+
+@app.post("/api/stripe-webhook")
+@app.post("/api/billing/webhook")
+async def handle_stripe_webhook(
+    request: Request,
+    stripe_signature: str = Header(default="", alias="Stripe-Signature"),
+) -> dict[str, bool]:
+    if not stripe_webhook_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Subscription webhook is not configured on the server.",
+        )
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload=await request.body(),
+            sig_header=stripe_signature,
+            secret=stripe_webhook_secret,
+        )
+    except (ValueError, stripe.SignatureVerificationError) as error:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Stripe webhook payload or signature.",
+        ) from error
+
+    if isinstance(event, stripe.StripeObject):
+        event = event.to_dict()
+
+    event_type = event.get("type")
+    data_object = event.get("data", {}).get("object", {})
+    if event_type == "checkout.session.completed":
+        if data_object.get("mode") != "subscription":
+            return {"received": True}
+
+        user_id = (
+            data_object.get("client_reference_id")
+            or (data_object.get("metadata") or {}).get("supabase_user_id")
+        )
+        customer_id = data_object.get("customer")
+        if not user_id:
+            logger.error(
+                "Stripe Checkout event %s has no Supabase user reference",
+                event.get("id"),
+            )
+            raise HTTPException(
+                status_code=400,
+                detail="Checkout event is missing its account reference.",
+            )
+
+        updates: dict[str, Any] = {}
+        if customer_id:
+            updates["stripe_customer_id"] = customer_id
+        if data_object.get("payment_status") in {"paid", "no_payment_required"}:
+            updates["is_subscribed"] = True
+        if updates:
+            update_response = (
+                supabase.table("profiles")
+                .update(updates)
+                .eq("id", user_id)
+                .select("id")
+                .execute()
+            )
+            if not update_response.data:
+                logger.error(
+                    "Stripe Checkout event %s references missing profile %s",
+                    event.get("id"),
+                    user_id,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="The subscription could not be linked to the account.",
+                )
+        return {"received": True}
+
+    if event_type not in {
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    }:
+        return {"received": True}
+
+    subscription = data_object
+    metadata = subscription.get("metadata") or {}
+    user_id = metadata.get("supabase_user_id")
+    customer_id = subscription.get("customer")
+    updates: dict[str, Any] = {
+        "is_subscribed": (
+            event_type != "customer.subscription.deleted"
+            and subscription.get("status") in {"active", "trialing"}
+        )
+    }
+    if customer_id:
+        updates["stripe_customer_id"] = customer_id
+
+    profile_query = supabase.table("profiles").update(updates)
+    if user_id:
+        profile_query = profile_query.eq("id", user_id)
+    elif customer_id:
+        profile_query = profile_query.eq("stripe_customer_id", customer_id)
+    else:
+        logger.warning(
+            "Stripe subscription event %s has no Supabase user or Stripe customer reference",
+            event.get("id"),
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Subscription event is missing its account reference.",
+        )
+
+    update_response = profile_query.select("id").execute()
+    if not update_response.data:
+        logger.error(
+            "Stripe subscription event %s references no matching profile (user=%s, customer=%s)",
+            event.get("id"),
+            user_id,
+            customer_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="The subscription could not be linked to the account.",
+        )
+
+    return {"received": True}
 
 
 def check_and_increment_usage(
