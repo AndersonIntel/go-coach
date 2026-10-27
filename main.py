@@ -84,6 +84,7 @@ class GameFinishPayload(BaseModel):
     result: str
     sgf: str
     moves_summary: str
+    game_stats: dict[str, Any] | None = None
 
 
 class CoachChatPayload(BaseModel):
@@ -137,14 +138,10 @@ def get_player_profile(user_id: str) -> dict[str, Any]:
 
 
 async def process_post_game(user_id: str, game_data: GameFinishPayload) -> None:
-    current_profile = get_player_profile(user_id)
-    winner_char = game_data.result[0].upper()
-    user_char = game_data.user_color[0].upper()
-    user_won = winner_char == user_char
-    current_wins = current_profile.get("wins", 0) + int(user_won)
-    current_losses = current_profile.get("losses", 0) + int(not user_won)
+    try:
+        current_profile = get_player_profile(user_id)
 
-    prompt = f"""
+        prompt = f"""
     You are a Go Grandmaster post-game analyzer.
     A student just finished a game playing as {game_data.user_color}.
     Match Result: {game_data.result}
@@ -167,7 +164,6 @@ async def process_post_game(user_id: str, game_data: GameFinishPayload) -> None:
     }}
     """
 
-    try:
         response = await client.aio.models.generate_content(
             model="gemini-3.5-flash",
             contents=prompt,
@@ -175,20 +171,8 @@ async def process_post_game(user_id: str, game_data: GameFinishPayload) -> None:
         )
         extracted = json.loads(response.text or "{}")
 
-        supabase.table("games").insert(
-            {
-                "user_id": user_id,
-                "user_color": game_data.user_color,
-                "result": game_data.result,
-                "sgf_content": game_data.sgf,
-            }
-        ).execute()
-
         supabase.table("profiles").update(
             {
-                "games_played": current_profile.get("games_played", 0) + 1,
-                "wins": current_wins,
-                "losses": current_losses,
                 "strengths": extracted.get("strengths", []),
                 "weaknesses": extracted.get("weaknesses", []),
                 "coaching_summary": extracted.get("overall_note", ""),
@@ -196,6 +180,37 @@ async def process_post_game(user_id: str, game_data: GameFinishPayload) -> None:
         ).eq("id", user_id).execute()
     except Exception:
         logger.exception("Error processing background game summary")
+
+
+@app.get("/api/profile/history")
+def get_profile_history(
+    user_id: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    profile_response = (
+        supabase.table("profiles")
+        .select("*")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    games_response = (
+        supabase.table("games")
+        .select("user_color, result, sgf_content, game_stats")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    profile = profile_response.data or {}
+    return {
+        "profile": {
+            "games_played": profile.get("games_played", 0),
+            "wins": profile.get("wins", 0),
+            "losses": profile.get("losses", 0),
+            "strengths": profile.get("strengths", []),
+            "weaknesses": profile.get("weaknesses", []),
+            "coaching_summary": profile.get("coaching_summary", ""),
+        },
+        "games": games_response.data or [],
+    }
 
 
 def check_and_increment_usage(
@@ -245,8 +260,35 @@ async def finish_game(
     bg_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user),
 ) -> dict[str, str]:
+    winner_char = payload.result[:1].upper()
+    user_char = payload.user_color[:1].upper()
+    if winner_char not in {"B", "W"} or user_char not in {"B", "W"}:
+        raise HTTPException(
+            status_code=422,
+            detail="Game result and user color must identify Black or White.",
+        )
+
+    profile = get_player_profile(user_id)
+    user_won = winner_char == user_char
+    supabase.table("games").insert(
+        {
+            "user_id": user_id,
+            "user_color": payload.user_color,
+            "result": payload.result,
+            "sgf_content": payload.sgf,
+            "game_stats": payload.game_stats or {},
+        }
+    ).execute()
+    supabase.table("profiles").update(
+        {
+            "games_played": (profile.get("games_played") or 0) + 1,
+            "wins": (profile.get("wins") or 0) + int(user_won),
+            "losses": (profile.get("losses") or 0) + int(not user_won),
+        }
+    ).eq("id", user_id).execute()
+
     bg_tasks.add_task(process_post_game, user_id, payload)
-    return {"status": "Game submitted successfully for post-game analysis"}
+    return {"status": "Game saved successfully; post-game analysis is processing."}
 
 
 @app.post("/api/coach/chat")
