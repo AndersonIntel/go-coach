@@ -138,6 +138,12 @@ def get_player_profile(user_id: str) -> dict[str, Any]:
 
 async def process_post_game(user_id: str, game_data: GameFinishPayload) -> None:
     current_profile = get_player_profile(user_id)
+    winner_char = game_data.result[0].upper()
+    user_char = game_data.user_color[0].upper()
+    user_won = winner_char == user_char
+    current_wins = current_profile.get("wins", 0) + int(user_won)
+    current_losses = current_profile.get("losses", 0) + int(not user_won)
+
     prompt = f"""
     You are a Go Grandmaster post-game analyzer.
     A student just finished a game playing as {game_data.user_color}.
@@ -181,6 +187,8 @@ async def process_post_game(user_id: str, game_data: GameFinishPayload) -> None:
         supabase.table("profiles").update(
             {
                 "games_played": current_profile.get("games_played", 0) + 1,
+                "wins": current_wins,
+                "losses": current_losses,
                 "strengths": extracted.get("strengths", []),
                 "weaknesses": extracted.get("weaknesses", []),
                 "coaching_summary": extracted.get("overall_note", ""),
