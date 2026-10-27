@@ -578,7 +578,7 @@
   <!-- COACH SIDEBAR -->
   <div id="coach-col">
     <div id="coach-header">
-      <span id="personaHeaderName">Sensei Gemini</span>
+      <span id="personaHeaderName">Master Baozi</span>
       <div id="coach-header-actions">
         <button id="passBtn" class="hud-btn">Pass</button>
         <button id="resignBtn" class="hud-btn">Resign</button>
@@ -948,6 +948,9 @@
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(sessionResult?.data?.session?.user?.id
+            ? { "X-User-ID": sessionResult.data.session.user.id }
+            : {}),
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
@@ -1959,6 +1962,9 @@
         || "guest-dev-token";
       const headers = {
         "Content-Type": "application/json",
+        ...(sessionResult?.data?.session?.user?.id
+          ? { "X-User-ID": sessionResult.data.session.user.id }
+          : {}),
         Authorization: `Bearer ${token}`
       };
 
