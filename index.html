@@ -261,15 +261,16 @@
 
     /* Modals & Overlays */
     .modal-overlay {
-      position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
+      position: fixed;
+      inset: 0;
       background: rgba(15, 15, 20, 0.88);
       backdrop-filter: blur(4px);
       display: flex;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start;
+      overflow-y: auto;
+      padding: 24px 12px;
       z-index: 100;
-      border-radius: 8px;
     }
     .hidden { display: none !important; }
 
@@ -316,9 +317,24 @@
       border-radius: 10px;
       padding: 24px 32px;
       width: 380px;
+      margin: auto 0;
       box-shadow: 0 16px 36px rgba(0,0,0,0.6);
     }
     .menu-card h2 { margin-top: 0; color: #6ebe97; font-size: 1.4rem; text-align: center; }
+    .logo-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .app-logo {
+      width: 72px;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 50%;
+    }
+    .logo-container h2 { margin: 0; font-size: 1.2rem; }
     .form-group { margin-bottom: 16px; }
     .form-group label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 6px; }
     .form-group select, .form-group input[type="password"] {
@@ -461,6 +477,10 @@
   <!-- START / SETUP MENU MODAL -->
   <div id="menuModal" class="modal-overlay">
     <div class="menu-card">
+      <div class="logo-container">
+        <img src="logo.jpeg" alt="Master Bao Logo" class="app-logo">
+        <h2>Master Bao AI Coach</h2>
+      </div>
       <h2>Match Settings</h2>
       <div class="account-row">
         <div class="form-group">
@@ -690,6 +710,11 @@
         password: authPasswordInput.value
       });
       if (error) throw error;
+      if (data.session) {
+        resetLocalPlayerState();
+        window.location.reload();
+        return;
+      }
       renderAuthSession(data.session);
       if (!data.session) {
         authStatus.textContent = "Account created. Check your email to confirm your address, then log in.";
@@ -709,8 +734,10 @@
         password: authPasswordInput.value
       });
       if (error) throw error;
+      resetLocalPlayerState();
       renderAuthSession(data.session);
       authPasswordInput.value = "";
+      window.location.reload();
     } catch (error) {
       setAuthError(error);
     }
@@ -722,8 +749,10 @@
     try {
       const { error } = await supabaseAuthClient.auth.signOut();
       if (error) throw error;
+      resetLocalPlayerState();
       renderAuthSession(null);
       authStatus.textContent = "You are logged out.";
+      window.location.reload();
     } catch (error) {
       setAuthError(error);
     }
@@ -949,6 +978,15 @@
     const blunders = telemetry.moveClassificationTotals.blunder;
     const fastBlunderRate = blunders ? Math.round(telemetry.blunderTriggers.fastBlunders / blunders * 100) : 0;
     telemetrySummary.innerText = `${telemetry.totalMoves} user moves tracked | Avg think: ${averageThink}s | Point loss: ${telemetry.totalMoves ? (telemetry.totalPointLoss / telemetry.totalMoves).toFixed(2) : "0.00"}/move | Blunders: ${blunders} (${fastBlunderRate}% fast) | Hover: ${(telemetry.totalHoverTimeMs / 1000).toFixed(1)}s | Scrubbing: ${(telemetry.totalScrubTimeMs / 1000).toFixed(1)}s`;
+  }
+
+  function resetLocalPlayerState() {
+    localStorage.removeItem(PROFILE_STORAGE_KEY);
+    localStorage.removeItem(ACTIVE_PROFILE_KEY);
+    activeProfileName = "Guest";
+    coachResponseCache.clear();
+    profileNameInput.value = activeProfileName;
+    profileStatus.innerText = `Playing as ${activeProfileName}`;
   }
 
   function recordGameResult(winner, scores, reason) {
