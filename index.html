@@ -341,6 +341,29 @@
     }
     .account-row .form-group { flex: 1; margin-bottom: 0; }
     .account-status { color: #aaa; font-size: 0.78rem; margin-top: 6px; }
+    .auth-container {
+      margin: 14px 0 16px;
+      padding: 12px;
+      background: rgba(0,0,0,0.2);
+      border: 1px solid #3c3c50;
+      border-radius: 8px;
+    }
+    .auth-container p { margin: 0 0 8px; color: #ccc; font-size: 0.82rem; line-height: 1.4; }
+    .auth-form input {
+      width: 100%;
+      margin: 4px 0;
+      padding: 8px;
+      background: #191920;
+      color: #fff;
+      border: 1px solid #4f4f66;
+      border-radius: 4px;
+    }
+    .auth-actions { display: flex; gap: 8px; margin-top: 6px; }
+    .auth-actions button { flex: 1; }
+    #auth-status { min-height: 1.2em; margin: 8px 0 0; color: #e4a758; font-size: 0.78rem; }
+    #logged-in-view { align-items: center; justify-content: space-between; gap: 8px; }
+    #logged-in-view:not([hidden]) { display: flex; }
+    #user-email-display { overflow-wrap: anywhere; font-size: 0.85rem; font-weight: 600; }
     .menu-actions { display: flex; gap: 8px; margin-top: 14px; }
     .menu-actions button { flex: 1; }
     .stats-card {
@@ -447,6 +470,26 @@
         </div>
         <button id="saveProfileBtn" class="hud-btn" type="button">Save Profile</button>
       </div>
+      <section id="auth-container" class="auth-container" aria-label="Account login">
+        <div id="logged-out-view">
+          <p>Log in to track your 5 free daily AI coach prompts and Pro status:</p>
+          <form id="auth-form" class="auth-form">
+            <label for="auth-email">Email address</label>
+            <input type="email" id="auth-email" autocomplete="email" placeholder="Email address" required />
+            <label for="auth-password">Password</label>
+            <input type="password" id="auth-password" autocomplete="current-password" placeholder="Password" required />
+            <div class="auth-actions">
+              <button id="sign-up-btn" class="hud-btn" type="button">Sign Up</button>
+              <button id="log-in-btn" class="primary-btn" type="submit">Log In</button>
+            </div>
+          </form>
+        </div>
+        <div id="logged-in-view" hidden>
+          <span id="user-email-display"></span>
+          <button id="log-out-btn" class="hud-btn" type="button">Log Out</button>
+        </div>
+        <p id="auth-status" role="status" aria-live="polite"></p>
+      </section>
       <button id="openStatsBtn" class="hud-btn" type="button" style="width:100%; margin: 4px 0 16px;">View Player Stats</button>
       <div class="form-group">
         <label>Your Stone Color</label>
@@ -599,8 +642,104 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   const API_BASE_URL = (window.AI_COACH_API_BASE_URL || "https://go-coach.onrender.com").replace(/\/+$/, "");
+  const SUPABASE_URL = "https://ghzrrjkhkjvgveptpkeu.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_KMm6NvcV8MDF6KtQDHZevA_Bo2sM00g";
+  const authForm = document.getElementById("auth-form");
+  const authEmailInput = document.getElementById("auth-email");
+  const authPasswordInput = document.getElementById("auth-password");
+  const loggedOutView = document.getElementById("logged-out-view");
+  const loggedInView = document.getElementById("logged-in-view");
+  const userEmailDisplay = document.getElementById("user-email-display");
+  const authStatus = document.getElementById("auth-status");
+  let supabaseAuthClient = window.supabaseClient || null;
+
+  if (!supabaseAuthClient) {
+    if (window.supabase?.createClient) {
+      supabaseAuthClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      window.supabaseClient = supabaseAuthClient;
+    } else {
+      authStatus.textContent = "Authentication is unavailable because the Supabase client could not be loaded.";
+      console.error("Supabase authentication client is unavailable.");
+      authForm.querySelectorAll("button").forEach(button => { button.disabled = true; });
+      document.getElementById("log-out-btn").disabled = true;
+    }
+  }
+
+  function renderAuthSession(session) {
+    const user = session?.user;
+    loggedOutView.hidden = Boolean(user);
+    loggedInView.hidden = !user;
+    userEmailDisplay.textContent = user?.email || "";
+    if (user) authStatus.textContent = "You are logged in.";
+  }
+
+  function setAuthError(error) {
+    authStatus.textContent = error instanceof Error ? error.message : "Authentication failed. Please try again.";
+  }
+
+  async function handleSignUp() {
+    if (!supabaseAuthClient) return;
+    if (!authForm.reportValidity()) return;
+    authStatus.textContent = "Creating your account...";
+    try {
+      const { data, error } = await supabaseAuthClient.auth.signUp({
+        email: authEmailInput.value.trim(),
+        password: authPasswordInput.value
+      });
+      if (error) throw error;
+      renderAuthSession(data.session);
+      if (!data.session) {
+        authStatus.textContent = "Account created. Check your email to confirm your address, then log in.";
+      }
+    } catch (error) {
+      setAuthError(error);
+    }
+  }
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    if (!supabaseAuthClient) return;
+    authStatus.textContent = "Logging in...";
+    try {
+      const { data, error } = await supabaseAuthClient.auth.signInWithPassword({
+        email: authEmailInput.value.trim(),
+        password: authPasswordInput.value
+      });
+      if (error) throw error;
+      renderAuthSession(data.session);
+      authPasswordInput.value = "";
+    } catch (error) {
+      setAuthError(error);
+    }
+  }
+
+  async function handleLogout() {
+    if (!supabaseAuthClient) return;
+    authStatus.textContent = "Logging out...";
+    try {
+      const { error } = await supabaseAuthClient.auth.signOut();
+      if (error) throw error;
+      renderAuthSession(null);
+      authStatus.textContent = "You are logged out.";
+    } catch (error) {
+      setAuthError(error);
+    }
+  }
+
+  document.getElementById("sign-up-btn").addEventListener("click", handleSignUp);
+  authForm.addEventListener("submit", handleLogin);
+  document.getElementById("log-out-btn").addEventListener("click", handleLogout);
+  if (supabaseAuthClient) {
+    supabaseAuthClient.auth.onAuthStateChange((_event, session) => renderAuthSession(session));
+    supabaseAuthClient.auth.getSession().then(({ data, error }) => {
+      if (error) setAuthError(error);
+      else renderAuthSession(data.session);
+    }).catch(setAuthError);
+  }
+
   const canvas = document.getElementById("goCanvas");
   const ctx = canvas.getContext("2d");
   const graphCanvas = document.getElementById("graphCanvas");
