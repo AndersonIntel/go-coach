@@ -184,7 +184,8 @@
       width: 100%;
     }
     #coach-col.collapsed #chat-log,
-    #coach-col.collapsed #coach-controls {
+    #coach-col.collapsed #coach-controls,
+    #coach-col.collapsed #monetization-banner {
       display: none;
     }
     #chat-log {
@@ -220,6 +221,42 @@
     }
     .student-entry .advice-header {
       color: #8da4d0;
+    }
+
+    #monetization-banner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 12px;
+      background: #222;
+      border-top: 1px solid #444;
+    }
+    #monetization-copy {
+      min-width: 0;
+      color: #aaa;
+      font-size: 0.75rem;
+    }
+    #billing-status {
+      display: block;
+      margin-top: 3px;
+      color: #6ebe97;
+    }
+    #stripeCheckoutBtn {
+      flex: 0 0 auto;
+      background: #f39c12;
+      color: #fff;
+      padding: 7px 10px;
+      border: 0;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #stripeCheckoutBtn:disabled {
+      cursor: wait;
+      opacity: 0.65;
     }
 
     #coach-controls {
@@ -657,6 +694,13 @@
       </div>
     </div>
     <div id="chat-log"></div>
+    <div id="monetization-banner">
+      <div id="monetization-copy">
+        <span>Unlock unlimited Master Bao coaching</span>
+        <span id="billing-status" role="status" aria-live="polite"></span>
+      </div>
+      <button id="stripeCheckoutBtn" type="button">🐼 Founding Member Pass</button>
+    </div>
     <div id="coach-controls">
       <select id="coachModeSelect" aria-label="Coach response mode">
         <option value="quick">Quick</option>
@@ -681,6 +725,8 @@
   const loggedInView = document.getElementById("logged-in-view");
   const userEmailDisplay = document.getElementById("user-email-display");
   const authStatus = document.getElementById("auth-status");
+  const stripeCheckoutBtn = document.getElementById("stripeCheckoutBtn");
+  const billingStatus = document.getElementById("billing-status");
   let supabaseAuthClient = window.supabaseClient || null;
   let activeUserId = null;
   let activeProfileName = "Guest";
@@ -976,6 +1022,7 @@
     activeProfileName = user?.email || localStorage.getItem(ACTIVE_PROFILE_KEY) || "Guest";
     remoteProfileHistory = null;
     remoteHistoryError = "";
+    updateBillingStatus();
     coachResponseCache.clear();
     renderStats();
     if (activeUserId) loadSupabaseProfileHistory();
@@ -993,12 +1040,69 @@
       remoteProfileHistory = data;
       remoteHistoryError = "";
       hydrateLocalProfileFromCloud();
+      updateBillingStatus();
     } catch (error) {
       remoteProfileHistory = null;
       remoteHistoryError = error instanceof Error ? error.message : "Unknown sync error";
       console.error("Failed to load Supabase profile history:", error);
     }
     renderStats();
+  }
+
+  function updateBillingStatus() {
+    const isSubscribed = Boolean(remoteProfileHistory?.profile?.is_subscribed);
+    billingStatus.textContent = isSubscribed
+      ? "Pro is active on this account."
+      : "";
+    stripeCheckoutBtn.hidden = isSubscribed;
+  }
+
+  async function startStripeCheckout() {
+    if (!supabaseAuthClient) {
+      billingStatus.textContent = "Authentication is unavailable; please try again later.";
+      return;
+    }
+
+    stripeCheckoutBtn.disabled = true;
+    billingStatus.textContent = "Connecting to secure checkout...";
+    try {
+      const { data, error } = await supabaseAuthClient.auth.getSession();
+      if (error) throw error;
+      if (!data.session) {
+        billingStatus.textContent = "Log in or sign up in Menu before upgrading.";
+        menuModal.classList.remove("hidden");
+        authEmailInput.focus();
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/billing/checkout-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${data.session.access_token}`
+        }
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.detail || `Checkout request failed (${response.status}).`);
+      }
+      if (typeof result.url !== "string") {
+        throw new Error("The server did not return a checkout link.");
+      }
+
+      const checkoutUrl = new URL(result.url);
+      if (checkoutUrl.protocol !== "https:" || checkoutUrl.hostname !== "checkout.stripe.com") {
+        throw new Error("The server returned an invalid Stripe checkout link.");
+      }
+      window.location.assign(checkoutUrl.href);
+    } catch (error) {
+      billingStatus.textContent = error instanceof Error
+        ? error.message
+        : "Unable to start checkout. Please try again.";
+      console.error("Unable to start Stripe checkout:", error);
+    } finally {
+      stripeCheckoutBtn.disabled = false;
+    }
   }
 
   function createTelemetryProfile() {
@@ -1981,9 +2085,19 @@
       bestMove = alternatives[Math.floor(Math.random() * alternatives.length)];
       bestScore = bestMove.score;
     }
-    const passThreshold = botRank <= 5 ? 0.15 : 0.45;
-    const allowEndgamePass = moveCount > SIZE * 2 || candidates.length < SIZE;
-    if (allowEndgamePass && bestMove.captures === 0 && bestScore <= currentScore + passThreshold) return null;
+    const occupiedCount = board.reduce(
+      (total, row) => total + row.filter(cell => cell !== EMPTY).length,
+      0
+    );
+    const isLateGame = moveCount > SIZE * 2;
+    const isBoardPrettyFull = occupiedCount / (SIZE * SIZE) >= 0.5;
+    const isTrulyLowValue = bestMove.captures === 0 && bestScore <= currentScore + 0.05;
+    const mayPass = botRank <= 20
+      ? isLateGame && isBoardPrettyFull && isTrulyLowValue
+      : (isLateGame || candidates.length < SIZE)
+        && bestMove.captures === 0
+        && bestScore <= currentScore + 0.45;
+    if (mayPass) return { pass: true };
     return bestMove;
   }
 
@@ -2044,7 +2158,12 @@
       captureMoves.sort((a, b) => b.capsCount - a.capsCount);
       return captureMoves[0];
     }
-    if (botRank <= 25) return getAdvancedBotMove();
+    if (botRank <= 25) {
+      const advancedMove = getAdvancedBotMove();
+      if (advancedMove?.pass) return null;
+      if (advancedMove) return advancedMove;
+      return legalMoves[Math.floor(Math.random() * legalMoves.length)];
+    }
     return legalMoves[Math.floor(Math.random() * legalMoves.length)];
   }
 
@@ -2355,6 +2474,14 @@
     coachToggleBtn.setAttribute("aria-expanded", String(!collapsed));
     requestAnimationFrame(resizeBoardCanvas);
   });
+
+  stripeCheckoutBtn.addEventListener("click", startStripeCheckout);
+  const checkoutResult = new URLSearchParams(window.location.search).get("checkout");
+  if (checkoutResult === "success") {
+    billingStatus.textContent = "Payment complete. Pro access activates after Stripe confirms your subscription.";
+  } else if (checkoutResult === "cancel") {
+    billingStatus.textContent = "Checkout canceled. You can upgrade whenever you are ready.";
+  }
 
   window.addEventListener("resize", resizeBoardCanvas);
 
