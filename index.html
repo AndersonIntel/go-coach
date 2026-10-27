@@ -366,13 +366,6 @@
       width: 100%;
       flex: none;
     }
-    .account-row {
-      display: flex;
-      gap: 8px;
-      align-items: end;
-    }
-    .account-row .form-group { flex: 1; margin-bottom: 0; }
-    .account-status { color: #aaa; font-size: 0.78rem; margin-top: 6px; }
     .auth-container {
       margin: 14px 0 16px;
       padding: 12px;
@@ -504,14 +497,6 @@
         <h1 class="logo-title">SensAI Go</h1>
       </div>
       <h2 class="match-settings-title">Match Settings</h2>
-      <div class="account-row">
-        <div class="form-group">
-          <label for="profileNameInput">Player Profile</label>
-          <input type="text" id="profileNameInput" placeholder="Enter your name" maxlength="24" />
-          <div id="profileStatus" class="account-status">Playing as Guest</div>
-        </div>
-        <button id="saveProfileBtn" class="hud-btn" type="button">Save Profile</button>
-      </div>
       <section id="auth-container" class="auth-container" aria-label="Account login">
         <div id="logged-out-view">
           <p>Log in to track your 5 free daily AI coach prompts and Pro status:</p>
@@ -697,6 +682,10 @@
   const userEmailDisplay = document.getElementById("user-email-display");
   const authStatus = document.getElementById("auth-status");
   let supabaseAuthClient = window.supabaseClient || null;
+  let activeUserId = null;
+  let activeProfileName = "Guest";
+  let remoteProfileHistory = null;
+  let remoteHistoryError = "";
 
   if (!supabaseAuthClient) {
     if (window.supabase?.createClient) {
@@ -716,6 +705,7 @@
     loggedInView.hidden = !user;
     userEmailDisplay.textContent = user?.email || "";
     if (user) authStatus.textContent = "You are logged in.";
+    activateAccount(session);
   }
 
   function setAuthError(error) {
@@ -733,7 +723,7 @@
       });
       if (error) throw error;
       if (data.session) {
-        resetLocalPlayerState();
+        renderAuthSession(data.session);
         window.location.reload();
         return;
       }
@@ -756,7 +746,6 @@
         password: authPasswordInput.value
       });
       if (error) throw error;
-      resetLocalPlayerState();
       renderAuthSession(data.session);
       authPasswordInput.value = "";
       window.location.reload();
@@ -771,7 +760,6 @@
     try {
       const { error } = await supabaseAuthClient.auth.signOut();
       if (error) throw error;
-      resetLocalPlayerState();
       renderAuthSession(null);
       authStatus.textContent = "You are logged out.";
       window.location.reload();
@@ -828,9 +816,6 @@
   const coachToggleBtn = document.getElementById("coachToggleBtn");
   const coachCol = document.getElementById("coach-col");
   const app = document.getElementById("app");
-  const profileNameInput = document.getElementById("profileNameInput");
-  const profileStatus = document.getElementById("profileStatus");
-  const saveProfileBtn = document.getElementById("saveProfileBtn");
   const openStatsBtn = document.getElementById("openStatsBtn");
   const statsModal = document.getElementById("statsModal");
   const closeStatsBtn = document.getElementById("closeStatsBtn");
@@ -906,10 +891,14 @@
   const coachResponseCache = new Map();
   const PROFILE_STORAGE_KEY = "go_sensei_profiles";
   const ACTIVE_PROFILE_KEY = "go_sensei_active_profile";
-  let activeProfileName = localStorage.getItem(ACTIVE_PROFILE_KEY) || "Guest";
+  activeProfileName = localStorage.getItem(ACTIVE_PROFILE_KEY) || "Guest";
+
+  function getProfileStorageKey() {
+    return activeUserId ? `${PROFILE_STORAGE_KEY}:${activeUserId}` : PROFILE_STORAGE_KEY;
+  }
 
   function readProfiles() {
-    try { return JSON.parse(localStorage.getItem(PROFILE_STORAGE_KEY) || "{}"); }
+    try { return JSON.parse(localStorage.getItem(getProfileStorageKey()) || "{}"); }
     catch (_) { return {}; }
   }
 
@@ -921,8 +910,95 @@
       profiles[activeProfileName].telemetry = createTelemetryProfile();
     }
     if (!Array.isArray(profiles[activeProfileName].games)) profiles[activeProfileName].games = [];
-      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+    localStorage.setItem(getProfileStorageKey(), JSON.stringify(profiles));
     return profiles[activeProfileName];
+  }
+
+  function getSupabaseTelemetry(games) {
+    const telemetry = createTelemetryProfile();
+    const recentTrends = new Map();
+    for (const archivedGame of games) {
+      const gameStats = archivedGame.game_stats || {};
+      const game = gameStats.game || {};
+      for (const move of game.userMoves || []) {
+        const phase = telemetry.phasePerformance[move.phase] ? move.phase : null;
+        const classification = telemetry.moveClassificationTotals[move.classification]
+          !== undefined ? move.classification : null;
+        telemetry.totalMoves++;
+        telemetry.totalThinkTimeMs += move.thinkTimeMs || 0;
+        telemetry.totalHoverTimeMs += move.hoverTimeMs || 0;
+        telemetry.totalScrubTimeMs += move.scrubTimeMs || 0;
+        telemetry.totalPointLoss += move.pointLoss || 0;
+        telemetry.totalWinRateSwing += move.winRateSwing || 0;
+        if (phase) {
+          telemetry.phasePerformance[phase].moves++;
+          telemetry.phasePerformance[phase].totalPointLoss += move.pointLoss || 0;
+        }
+        if (classification) telemetry.moveClassificationTotals[classification]++;
+        if (classification === "blunder") {
+          if ((move.thinkTimeMs || 0) < 2000) telemetry.blunderTriggers.fastBlunders++;
+          if ((move.thinkTimeMs || 0) > 15000) telemetry.blunderTriggers.slowBlunders++;
+          if (move.underAttack) telemetry.blunderTriggers.underAttackBlunders++;
+        }
+        Object.keys(move.archetypes || {}).forEach(key => {
+          if (move.archetypes[key] && telemetry.archetypeTotals[key] !== undefined) {
+            telemetry.archetypeTotals[key]++;
+          }
+        });
+      }
+      for (const trend of gameStats.telemetry?.recentTrends || []) {
+        recentTrends.set(trend.gameId, trend);
+      }
+    }
+    telemetry.recentTrends = Array.from(recentTrends.values()).slice(-12);
+    return telemetry;
+  }
+
+  function hydrateLocalProfileFromCloud() {
+    const cloudGames = remoteProfileHistory?.games || [];
+    const profiles = readProfiles();
+    const localProfile = profiles[activeProfileName];
+    if (localProfile?.games?.length || localProfile?.telemetry?.totalMoves) return;
+
+    profiles[activeProfileName] = {
+      games: cloudGames.map(game => game.game_stats?.game).filter(Boolean),
+      telemetry: getSupabaseTelemetry(cloudGames),
+    };
+    localStorage.setItem(getProfileStorageKey(), JSON.stringify(profiles));
+  }
+
+  function activateAccount(session) {
+    const user = session?.user;
+    const nextUserId = user?.id || null;
+    if (nextUserId === activeUserId) return;
+
+    activeUserId = nextUserId;
+    activeProfileName = user?.email || localStorage.getItem(ACTIVE_PROFILE_KEY) || "Guest";
+    remoteProfileHistory = null;
+    remoteHistoryError = "";
+    coachResponseCache.clear();
+    renderStats();
+    if (activeUserId) loadSupabaseProfileHistory();
+  }
+
+  async function loadSupabaseProfileHistory() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/profile/history`, {
+        headers: await getBackendAuthHeaders()
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || `Profile sync failed (${response.status})`);
+      }
+      remoteProfileHistory = data;
+      remoteHistoryError = "";
+      hydrateLocalProfileFromCloud();
+    } catch (error) {
+      remoteProfileHistory = null;
+      remoteHistoryError = error instanceof Error ? error.message : "Unknown sync error";
+      console.error("Failed to load Supabase profile history:", error);
+    }
+    renderStats();
   }
 
   function createTelemetryProfile() {
@@ -960,23 +1036,40 @@
     return telemetry;
   }
 
-  function saveProfileName() {
-    const requestedName = profileNameInput.value.trim().replace(/\s+/g, " ") || "Guest";
-    const profiles = readProfiles();
-    if (!profiles[requestedName]) profiles[requestedName] = { games: [], telemetry: createTelemetryProfile() };
-    activeProfileName = requestedName;
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
-    localStorage.setItem(ACTIVE_PROFILE_KEY, activeProfileName);
-    profileNameInput.value = activeProfileName;
-    profileStatus.innerText = `Playing as ${activeProfileName}`;
-    renderStats();
-  }
-
   function renderStats() {
-    const games = getProfile().games;
-    const wins = games.filter(game => game.result === "win").length;
-    const losses = games.length - wins;
-    const winRate = games.length ? Math.round((wins / games.length) * 100) : 0;
+    const localProfile = getProfile();
+    const localGames = localProfile.games;
+    const remoteGames = remoteProfileHistory?.games;
+    const games = activeUserId && Array.isArray(remoteGames)
+      ? remoteGames.map(game => {
+          const gameDetails = game.game_stats?.game || {};
+          const userColor = String(game.user_color || "").charAt(0).toUpperCase();
+          const winnerColor = String(game.result || "").charAt(0).toUpperCase();
+          const boardSize = gameDetails.boardSize || `${game.sgf_content?.match(/SZ\[(\d+)\]/)?.[1] || "Unknown"}x${game.sgf_content?.match(/SZ\[(\d+)\]/)?.[1] || "Unknown"}`;
+          const moveCount = gameDetails.moves ?? (game.sgf_content?.match(/;[BW]\[/g) || []).length;
+          return {
+            result: userColor && winnerColor === userColor ? "win" : "loss",
+            boardSize,
+            moves: moveCount,
+            userColor: game.user_color || "Unknown",
+            rawResult: game.result || "Unknown result",
+          };
+        })
+      : localGames;
+    const derivedWins = games.filter(game => game.result === "win").length;
+    const derivedLosses = games.length - derivedWins;
+    const remoteProfile = remoteProfileHistory?.profile || {};
+    const wins = activeUserId && remoteProfileHistory
+      ? Math.max(remoteProfile.wins || 0, derivedWins)
+      : derivedWins;
+    const losses = activeUserId && remoteProfileHistory
+      ? Math.max(remoteProfile.losses || 0, derivedLosses)
+      : derivedLosses;
+    const totalGames = Math.max(
+      games.length,
+      activeUserId && remoteProfileHistory ? remoteProfile.games_played || 0 : 0
+    );
+    const winRate = wins + losses ? Math.round((wins / (wins + losses)) * 100) : 0;
     let currentStreak = 0;
     let bestStreak = 0;
     [...games].reverse().forEach(game => {
@@ -985,37 +1078,45 @@
       bestStreak = Math.max(bestStreak, currentStreak);
     });
 
-    profileNameInput.value = activeProfileName;
-    profileStatus.innerText = `Playing as ${activeProfileName}`;
-    statsSubtitle.innerText = `${activeProfileName}'s Go record and recurring patterns.`;
+    const accountLabel = activeUserId ? activeProfileName : "Guest";
+    statsSubtitle.innerText = remoteHistoryError
+      ? `Cloud history unavailable: ${remoteHistoryError}`
+      : activeUserId && !remoteProfileHistory
+        ? `Loading ${accountLabel}'s Supabase history...`
+        : `${accountLabel}'s Go record and recurring patterns.`;
     winsStat.innerText = wins;
     lossesStat.innerText = losses;
     winRateStat.innerText = `${winRate}%`;
     streakStat.innerText = bestStreak;
-    recentGames.innerHTML = games.length ? games.slice(-8).reverse().map(game =>
-      `<li><strong>${game.result === "win" ? "Win" : "Loss"}</strong> - ${game.boardSize} board, Level ${game.botRank}, ${game.moves} moves</li>`
-    ).join("") : "<li>No completed games yet.</li>";
-    const telemetry = mergeTelemetryProfile(getProfile().telemetry);
+    recentGames.replaceChildren();
+    if (games.length) {
+      games.slice(-8).reverse().forEach(game => {
+        const item = document.createElement("li");
+        item.textContent = `${game.result === "win" ? "Win" : "Loss"} - ${game.boardSize || "Unknown board"}, ${game.moves || 0} moves`;
+        recentGames.append(item);
+      });
+    } else {
+      const emptyMessage = document.createElement("li");
+      emptyMessage.textContent = activeUserId && !remoteHistoryError && !remoteProfileHistory
+        ? "Loading saved games..."
+        : "No completed games yet.";
+      recentGames.append(emptyMessage);
+    }
+    const telemetry = activeUserId && Array.isArray(remoteGames)
+      ? getSupabaseTelemetry(remoteGames)
+      : mergeTelemetryProfile(localProfile.telemetry);
     const averageThink = telemetry.totalMoves ? (telemetry.totalThinkTimeMs / telemetry.totalMoves / 1000).toFixed(1) : "0.0";
     const blunders = telemetry.moveClassificationTotals.blunder;
     const fastBlunderRate = blunders ? Math.round(telemetry.blunderTriggers.fastBlunders / blunders * 100) : 0;
-    telemetrySummary.innerText = `${telemetry.totalMoves} user moves tracked | Avg think: ${averageThink}s | Point loss: ${telemetry.totalMoves ? (telemetry.totalPointLoss / telemetry.totalMoves).toFixed(2) : "0.00"}/move | Blunders: ${blunders} (${fastBlunderRate}% fast) | Hover: ${(telemetry.totalHoverTimeMs / 1000).toFixed(1)}s | Scrubbing: ${(telemetry.totalScrubTimeMs / 1000).toFixed(1)}s`;
-  }
-
-  function resetLocalPlayerState() {
-    localStorage.removeItem(PROFILE_STORAGE_KEY);
-    localStorage.removeItem(ACTIVE_PROFILE_KEY);
-    activeProfileName = "Guest";
-    coachResponseCache.clear();
-    profileNameInput.value = activeProfileName;
-    profileStatus.innerText = `Playing as ${activeProfileName}`;
+    const telemetryStorage = activeUserId ? "synced to Supabase" : "on this device";
+    telemetrySummary.innerText = `${totalGames} games saved to your account | ${telemetry.totalMoves} user moves tracked ${telemetryStorage} | Avg think: ${averageThink}s | Point loss: ${telemetry.totalMoves ? (telemetry.totalPointLoss / telemetry.totalMoves).toFixed(2) : "0.00"}/move | Blunders: ${blunders} (${fastBlunderRate}% fast) | Hover: ${(telemetry.totalHoverTimeMs / 1000).toFixed(1)}s | Scrubbing: ${(telemetry.totalScrubTimeMs / 1000).toFixed(1)}s`;
   }
 
   function recordGameResult(winner, scores, reason) {
     const profiles = readProfiles();
     const profile = profiles[activeProfileName] || { games: [], telemetry: createTelemetryProfile() };
     profile.telemetry = mergeTelemetryProfile(profile.telemetry);
-    profile.games.push({
+    const gameRecord = {
       result: winner === userColor ? "win" : "loss",
       boardSize: `${SIZE}x${SIZE}`,
       botRank,
@@ -1028,7 +1129,8 @@
       reason,
       persona: currentPersona,
       playedAt: new Date().toISOString()
-    });
+    };
+    profile.games.push(gameRecord);
     const telemetry = mergeTelemetryProfile(profile.telemetry);
     telemetry.recentTrends.push({
       gameId: profile.games.length,
@@ -1043,7 +1145,8 @@
     profile.telemetry = telemetry;
     delete profile.currentGameMoves;
     profiles[activeProfileName] = profile;
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+    localStorage.setItem(getProfileStorageKey(), JSON.stringify(profiles));
+    return gameRecord;
   }
 
   function averagePhaseLoss(phaseData) {
@@ -1118,23 +1221,46 @@
     profile.telemetry = telemetry;
     profile.currentGameMoves = moveTelemetry;
     profiles[activeProfileName] = profile;
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+    localStorage.setItem(getProfileStorageKey(), JSON.stringify(profiles));
     renderStats();
   }
 
   function getStatsSummary() {
     const profile = getProfile();
-    const games = profile.games;
-    const telemetry = mergeTelemetryProfile(profile.telemetry);
-    const wins = games.filter(game => game.result === "win").length;
-    const losses = games.length - wins;
+    const games = activeUserId && Array.isArray(remoteProfileHistory?.games)
+      ? remoteProfileHistory.games.map(game => {
+          const gameDetails = game.game_stats?.game || {};
+          const sgfBoardSize = game.sgf_content?.match(/SZ\[(\d+)\]/)?.[1];
+          return {
+            result: String(game.user_color || "").charAt(0).toUpperCase()
+              === String(game.result || "").charAt(0).toUpperCase() ? "win" : "loss",
+            boardSize: gameDetails.boardSize || sgfBoardSize || "Unknown",
+            moves: gameDetails.moves ?? (game.sgf_content?.match(/;[BW]\[/g) || []).length,
+          };
+        })
+      : profile.games;
+    const telemetry = activeUserId && Array.isArray(remoteProfileHistory?.games)
+      ? getSupabaseTelemetry(remoteProfileHistory.games)
+      : mergeTelemetryProfile(profile.telemetry);
+    const derivedWins = games.filter(game => game.result === "win").length;
+    const derivedLosses = games.length - derivedWins;
+    const wins = activeUserId && remoteProfileHistory
+      ? Math.max(remoteProfileHistory.profile?.wins || 0, derivedWins)
+      : derivedWins;
+    const losses = activeUserId && remoteProfileHistory
+      ? Math.max(remoteProfileHistory.profile?.losses || 0, derivedLosses)
+      : derivedLosses;
+    const totalGames = Math.max(
+      games.length,
+      activeUserId && remoteProfileHistory ? remoteProfileHistory.profile?.games_played || 0 : 0
+    );
     const averageMoves = games.length ? Math.round(games.reduce((sum, game) => sum + game.moves, 0) / games.length) : 0;
     const boards = [...new Set(games.map(game => game.boardSize))].join(", ") || "None yet";
     const recent = telemetry.recentTrends.slice(-8);
     const averageThink = telemetry.totalMoves ? (telemetry.totalThinkTimeMs / telemetry.totalMoves / 1000).toFixed(2) : "0.00";
     const phaseSummary = Object.fromEntries(Object.entries(telemetry.phasePerformance).map(([phase, data]) => [phase, { moves: data.moves, avgPointLoss: data.moves ? +(data.totalPointLoss / data.moves).toFixed(2) : 0 }]));
     return JSON.stringify({
-      profile: { name: activeProfileName, games: games.length, wins, losses, winRate: games.length ? Math.round(wins / games.length * 100) : 0, averageGameLength: averageMoves, boards },
+      profile: { name: activeProfileName, games: totalGames, wins, losses, winRate: wins + losses ? Math.round(wins / (wins + losses) * 100) : 0, averageGameLength: averageMoves, boards },
       telemetry: { totalMoves: telemetry.totalMoves, avgThinkTimeSec: +averageThink, phasePerformance: phaseSummary, blunderTriggers: telemetry.blunderTriggers, moveClassificationTotals: telemetry.moveClassificationTotals, archetypeTotals: telemetry.archetypeTotals, recentTrends: recent }
     }, null, 2);
   }
@@ -1182,7 +1308,6 @@
   }
 
   function initGame() {
-    saveProfileName();
     clearTimeout(passBannerTimeout);
     passBanner.classList.add("hidden");
     SIZE = parseInt(boardSizeSelect.value, 10);
@@ -1456,8 +1581,9 @@
     return `(;GM[1]FF[4]CA[UTF-8]AP[Go Coach]SZ[${SIZE}]KM[5.5]PB[${escapeSgfValue(blackPlayer)}]PW[${escapeSgfValue(whitePlayer)}]RE[${gameResult}]${moves})`;
   }
 
-  async function saveCompletedGame(gameResult, sgfContent) {
+  async function saveCompletedGame(gameResult, sgfContent, gameDetails) {
     try {
+      const profile = getProfile();
       const response = await fetch(`${API_BASE_URL}/api/games/complete`, {
         method: "POST",
         headers: await getBackendAuthHeaders(),
@@ -1465,12 +1591,22 @@
           user_color: userColor === BLACK ? "Black" : "White",
           result: gameResult,
           sgf: sgfContent,
-          moves_summary: moveHistory.map(move => `${move.color}:${move.coord}`).join(", ")
+          moves_summary: moveHistory.map(move => `${move.color}:${move.coord}`).join(", "),
+          game_stats: {
+            game: gameDetails,
+            telemetry: profile.telemetry
+          }
         })
       });
       if (!response.ok) throw new Error(`Request failed (${response.status})`);
+      if (activeUserId) await loadSupabaseProfileHistory();
     } catch (err) {
       console.error("Failed to save completed game:", err);
+      if (activeUserId) {
+        remoteProfileHistory = null;
+        remoteHistoryError = `Game could not be synced: ${err.message || "unknown error"}`;
+        renderStats();
+      }
     }
   }
 
@@ -1478,12 +1614,12 @@
     if (gameOver) return;
     gameOver = true;
     const scores = calculateScore();
-    recordGameResult(winner, scores, reason);
+    const gameDetails = recordGameResult(winner, scores, reason);
     const resultColor = winner === BLACK ? "B" : "W";
     const gameResult = /resign|bowed/i.test(reason)
       ? `${resultColor}+Resignation`
       : `${resultColor}+${Math.abs(scores.totalBlack - scores.totalWhite).toFixed(1)}`;
-    saveCompletedGame(gameResult, buildCompletedGameSgf(gameResult));
+    saveCompletedGame(gameResult, buildCompletedGameSgf(gameResult), gameDetails);
 
     document.getElementById("blackScore").innerText = scores.totalBlack.toFixed(1);
     document.getElementById("whiteScore").innerText = scores.totalWhite.toFixed(1);
@@ -2190,12 +2326,11 @@
 
   startGameBtn.addEventListener("click", initGame);
   playAgainBtn.addEventListener("click", initGame);
-  saveProfileBtn.addEventListener("click", saveProfileName);
   openStatsBtn.addEventListener("click", () => {
-    saveProfileName();
     menuModal.classList.add("hidden");
     statsModal.classList.remove("hidden");
     renderStats();
+    if (activeUserId) loadSupabaseProfileHistory();
   });
   closeStatsBtn.addEventListener("click", () => {
     statsModal.classList.add("hidden");
